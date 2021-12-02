@@ -29,11 +29,7 @@ abstract contract OracleSign {
         return (v, r, s);
     }
 
-    function _recoverSigner(bytes32 message, bytes memory sig)
-        internal
-        pure
-        returns (address)
-    {
+    function _recoverSigner(bytes32 message, bytes memory sig) internal pure returns (address) {
         uint8 v;
         bytes32 r;
         bytes32 s;
@@ -44,9 +40,6 @@ abstract contract OracleSign {
     }
 
     function _prefixed(bytes32 hash) internal pure returns (bytes32) {
-        return
-            keccak256(
-                abi.encodePacked("\x19Ethereum Signed Message:\n32", hash)
-            );
+        return keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", hash));
     }
 }
