@@ -105,7 +105,13 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
         emit claimRequested(msg.sender, requests.length - 1);
     }
 
-    function claim(uint256 reuqest) public {}
+    function claim() public {
+        (uint256 available, uint256[] memory requestIds) = getAvailableToCollect();
+        require(available > 0, "nothing to claim");
+        _updateLimits(available);
+        _claimRequests(available, requestIds);
+        deliveryToken.safeTransfer(msg.sender, available);
+    }
 
     /***************************** internal ****************************/
 
@@ -122,6 +128,35 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
         require(claimAmount <= currentClaimDailyLimit, "Limit exceeded");
         if (claimAmount > 0) {
             currentClaimDailyLimit -= claimAmount;
+        }
+    }
+
+    function _claimRequests(uint256 available, uint256[] memory requestIds) internal {
+        require(requestIds.length > 0, "no requests for claiming");
+        // go by requests and claim available amount one by one
+        for (uint256 i = 0; i < requestIds.length; i++) {
+            require(requests[requestIds[i]].claimfromYMD <= timestampToYMD(block.timestamp), "incorrect claim");
+            if (available <= 0) return;
+            // claim available
+            uint256 restOfPayment = requests[requestIds[i]].requestedAmount - requests[requestIds[i]].paidAmount;
+
+            // reduce available by rest of payment
+            if (available >= restOfPayment) {
+                requests[requestIds[i]].paidAmount += restOfPayment;
+                available -= restOfPayment;
+            } else {
+                requests[requestIds[i]].paidAmount += available;
+                available = 0;
+            }
+            // request filled -> add to finished requests and remove from wallet requests
+            if (requests[requestIds[i]].requestedAmount == requests[requestIds[i]].paidAmount) {
+                walletFinishedRequests[msg.sender].push(requestIds[i]);
+                // remove completed reuqest id
+                walletRequests[msg.sender][requestIds[i]] = walletRequests[msg.sender][
+                    walletRequests[msg.sender].length - 1
+                ];
+                walletRequests[msg.sender].pop();
+            }
         }
     }
 
@@ -162,5 +197,43 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
     /*************************** view ************************************/
     function totalSupply() public view returns (uint256 supply) {
         supply = availableForRequests + lockedForRequests;
+    }
+
+    function getAvailableToCollect() public view returns (uint256 available, uint256[] memory requestIds) {
+        uint256 count;
+        for (uint256 i = 0; i < walletRequests[msg.sender].length; i++) {
+            Request memory _req = requests[walletRequests[msg.sender][i]];
+            if (
+                available < availableForRequests &&
+                !_req.isDeactivated &&
+                (_req.requestedAmount - _req.paidAmount) > 0 &&
+                _req.claimfromYMD >= timestampToYMD(block.timestamp)
+            ) {
+                // add available amount according daily available for requests
+                available += (available + (_req.requestedAmount - _req.paidAmount) <= availableForRequests)
+                    ? (_req.requestedAmount - _req.paidAmount)
+                    : availableForRequests;
+                // count requests
+                count++;
+            }
+        }
+        // fillup returning requestIds
+        if (count > 0) {
+            uint256[] memory _tempList = new uint256[](count);
+            for (uint256 i = 0; i < walletRequests[msg.sender].length; i++) {
+                Request memory _req = requests[walletRequests[msg.sender][i]];
+                if (
+                    available < availableForRequests &&
+                    !_req.isDeactivated &&
+                    (_req.requestedAmount - _req.paidAmount) > 0 &&
+                    _req.claimfromYMD >= timestampToYMD(block.timestamp)
+                ) {
+                    count--;
+                    // save request id
+                    _tempList[count - 1] = walletRequests[msg.sender][i];
+                }
+            }
+            requestIds = _tempList;
+        }
     }
 }
