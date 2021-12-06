@@ -64,19 +64,25 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
         address _signatureWallet,
         address _deliveryToken,
         address _deliveryAdmin,
-        uint256 _claimTimeout
+        uint256 _claimTimeout,
+        uint256 _claimDailyLimit
     ) public virtual initializer {
         __Ownable_init();
         transferOwnership(_deliveryAdmin);
         signatureWallet = _signatureWallet;
         claimTimeout = _claimTimeout;
+        claimDailyLimit = _claimDailyLimit;
         deliveryToken = IERC20Upgradeable(_deliveryToken);
+    }
+
+    function getWalletNonce() public view returns (uint256) {
+        return walletNonce[msg.sender];
     }
 
     function request(
         address wallet,
-        uint256 nonce,
         uint256 amount,
+        uint256 nonce,
         bytes memory sig
     ) public {
         require(wallet == msg.sender, "incorrect sender");
@@ -230,7 +236,7 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
                 ) {
                     count--;
                     // save request id
-                    _tempList[count - 1] = walletRequests[msg.sender][i];
+                    _tempList[count] = walletRequests[msg.sender][i];
                 }
             }
             requestIds = _tempList;

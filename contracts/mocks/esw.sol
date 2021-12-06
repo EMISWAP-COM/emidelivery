@@ -5,9 +5,7 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 contract MockESW is ERC20 {
-    uint256 private constant _INITIAL_SUPPLY = 10_000_000_000 * (10**18);
-
-    constructor() ERC20("ESW token", "ESW") {
-        _mint(msg.sender, _INITIAL_SUPPLY);
+    constructor(uint256 init_supply) ERC20("ESW token", "ESW") {
+        _mint(msg.sender, init_supply);
     }
 }
