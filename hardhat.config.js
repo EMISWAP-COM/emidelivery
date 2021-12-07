@@ -7,6 +7,9 @@ require("solidity-coverage");
 require('@openzeppelin/hardhat-upgrades');
 require("@nomiclabs/hardhat-web3");
 
+const ALCHEMY_API_KEY_MUMBAI = process.env.ALCHEMY_API_KEY_MUMBAI || "";
+const MUMBAI_PRIVATE_KEY = process.env.MUMBAI_PRIVATE_KEY || "";
+
 // This is a sample Hardhat task. To learn how to create your own go to
 // https://hardhat.org/guides/create-task.html
 task("accounts", "Prints the list of accounts", async (taskArgs, hre) => {
@@ -17,6 +20,22 @@ task("accounts", "Prints the list of accounts", async (taskArgs, hre) => {
   }
 });
 
+const exportNetworks = {
+  hardhat: {},
+  ganache: {
+    url: "http://127.0.0.1:8545",
+    gasLimit: 6000000000,
+    defaultBalanceEther: 10
+  },
+}
+
+if (ALCHEMY_API_KEY_MUMBAI != "" && MUMBAI_PRIVATE_KEY != "") {
+  exportNetworks["mumbai"] = {
+    url: `https://polygon-mumbai.g.alchemy.com/v2/${ALCHEMY_API_KEY_MUMBAI}`,
+    accounts: [`${MUMBAI_PRIVATE_KEY}`]
+  }
+}
+
 // You need to export an object to set up your config
 // Go to https://hardhat.org/config/ to learn more
 
@@ -25,13 +44,7 @@ task("accounts", "Prints the list of accounts", async (taskArgs, hre) => {
  */
 module.exports = {
   solidity: "0.8.4",
-  networks: {
-    ropsten: {
-      url: process.env.ROPSTEN_URL || "",
-      accounts:
-        process.env.PRIVATE_KEY !== undefined ? [process.env.PRIVATE_KEY] : [],
-    },
-  },
+  networks: exportNetworks,
   gasReporter: {
     enabled: process.env.REPORT_GAS !== undefined,
     currency: "USD",

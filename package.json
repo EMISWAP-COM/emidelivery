@@ -37,9 +37,12 @@
   "scripts": {
     "compile": "npx hardhat compile",
     "test": "npx hardhat test",
-    "prettier-test": "npx prettier --write test --print-width 120 --tab-width 4",
-    "prettier-scripts": "npx prettier --write scripts --print-width 120 --tab-width 4",
+    "prettier-test": "npx prettier --write test --print-width 120 --tab-width 2",
+    "prettier-scripts": "npx prettier --write scripts --print-width 120 --tab-width 2",
+    "prettier-utils": "npx prettier --write utils --print-width 120 --tab-width 2",
     "prettier-sol": "prettier --write \"contracts/**/*.sol\" --print-width 120 --tab-width 4",
+    "deploy-hardhat": "npx hardhat run scripts/deployWithMock.js --network hardhat",
+    "deploy-mumbai": "npx hardhat run scripts/deployWithMock.js --network mumbai",
     "contract-flatten": "npx hardhat flatten contracts/emidelivery.sol > flat/emidelivery.flat.sol"
   }
 }

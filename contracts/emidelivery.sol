@@ -19,7 +19,6 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
     IERC20Upgradeable public deliveryToken;
     // settings values
     address public signatureWallet;
-    address public deliveryAdmin;
     uint256 public claimTimeout;
     uint256 public claimDailyLimit;
 
@@ -30,12 +29,10 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
     mapping(address => uint256) public walletNonce;
 
     /*
-                        / availableForRequests
-        totalSupply = = 
-                        \ lockedForRequests      
+                        
+        availableForRequests = deliveryToken.balanceOf() - lockedForRequests
+
     */
-    // value available for new requests
-    uint256 public availableForRequests;
     // value locked by existing unclaimed requests values
     uint256 public lockedForRequests;
 
@@ -59,6 +56,7 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
     mapping(address => uint256[]) walletFinishedRequests;
 
     event claimRequested(address wallet, uint256 reauestId);
+    event claimed(address wallet, uint256 amount);
 
     function initialize(
         address _signatureWallet,
@@ -86,6 +84,7 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
         bytes memory sig
     ) public {
         require(wallet == msg.sender, "incorrect sender");
+        require(amount <= availableForRequests(), "insufficient reserves");
         // check sign
         bytes32 message = _prefixed(keccak256(abi.encodePacked(wallet, amount, nonce, this)));
 
@@ -106,34 +105,38 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
             })
         );
 
+        lockedForRequests += amount;
+
         // save request id
         walletRequests[msg.sender].push(requests.length - 1);
         emit claimRequested(msg.sender, requests.length - 1);
     }
 
     function claim() public {
-        (uint256 available, uint256[] memory requestIds) = getAvailableToCollect();
+        _updateLimits();
+        (uint256 available, uint256[] memory requestIds) = getAvailableToClaim();
+        //console.log("claim() available %s", available);
         require(available > 0, "nothing to claim");
-        _updateLimits(available);
+        require(available <= currentClaimDailyLimit, "Limit exceeded");
+
+        currentClaimDailyLimit -= available;
+
         _claimRequests(available, requestIds);
+        lockedForRequests -= available;
         deliveryToken.safeTransfer(msg.sender, available);
+        emit claimed(msg.sender, available);
     }
 
     /***************************** internal ****************************/
 
     /**
-     * @dev update daily limits: reset on new day, reduce claimlimit on claim
-     * @param claimAmount amount reduces current day limit, can be 0 - use to reset lastYMD and limit
+     * @dev update daily limits: reset on new day
      */
-    function _updateLimits(uint256 claimAmount) internal {
+    function _updateLimits() internal {
         // set next day limits
         if (lastYMD < timestampToYMD(block.timestamp)) {
             currentClaimDailyLimit = claimDailyLimit;
             lastYMD = timestampToYMD(block.timestamp);
-        }
-        require(claimAmount <= currentClaimDailyLimit, "Limit exceeded");
-        if (claimAmount > 0) {
-            currentClaimDailyLimit -= claimAmount;
         }
     }
 
@@ -176,7 +179,6 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
     function deposite(uint256 amount) public onlyOwner {
         require(amount > 0, "amount must be > 0");
         deliveryToken.safeTransferFrom(msg.sender, address(this), amount);
-        availableForRequests += amount;
     }
 
     /**
@@ -184,9 +186,8 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
      * @param amount for withdraw of "deliveryToken"
      */
     function withdraw(uint256 amount) public onlyOwner {
-        require(amount > 0 && amount <= availableForRequests, "amount must be > 0 and <= available");
+        require(amount > 0 && amount <= availableForRequests(), "amount must be > 0 and <= available");
         deliveryToken.safeTransfer(msg.sender, amount);
-        availableForRequests -= amount;
     }
 
     function setNewTimeOut(uint256 newClaimTimeout) public onlyOwner {
@@ -200,25 +201,74 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
         claimDailyLimit = newclaimDailyLimit;
     }
 
-    /*************************** view ************************************/
-    function totalSupply() public view returns (uint256 supply) {
-        supply = availableForRequests + lockedForRequests;
+    function setSignatureWallet(address _signatureWallet) public onlyOwner {
+        require(signatureWallet != _signatureWallet, "not changed");
+        signatureWallet = _signatureWallet;
     }
 
-    function getAvailableToCollect() public view returns (uint256 available, uint256[] memory requestIds) {
+    /*************************** view ************************************/
+    function getClaimDailyLimit() public view returns (uint256 limit) {
+        if (lastYMD < timestampToYMD(block.timestamp)) {
+            limit = claimDailyLimit; // if not updated this day
+        } else {
+            limit = currentClaimDailyLimit; // if updated
+        }
+    }
+
+    function totalSupply() public view returns (uint256 supply) {
+        supply = deliveryToken.balanceOf(address(this));
+    }
+
+    function availableForRequests() public view returns (uint256 available) {
+        available = totalSupply() - lockedForRequests;
+    }
+
+    function getFinishedRequests(address wallet) public view returns (uint256[] memory requestIds) {
+        // fillup returning requestIds
+        if (walletFinishedRequests[wallet].length > 0) {
+            uint256[] memory _tempList = new uint256[](walletFinishedRequests[wallet].length);
+            for (uint256 i = 0; i < walletFinishedRequests[wallet].length; i++) {                
+                _tempList[i] = walletFinishedRequests[wallet][i];
+            }
+            requestIds = _tempList;
+        }
+    }
+
+    function getRemainderOfRequests() public view returns (uint256 remainder, uint256[] memory requestIds) {
         uint256 count;
         for (uint256 i = 0; i < walletRequests[msg.sender].length; i++) {
             Request memory _req = requests[walletRequests[msg.sender][i]];
+            // add remainder amount for all requests
+            remainder += _req.requestedAmount - _req.paidAmount;
+            // count requests
+            count++;
+        }
+        // fillup returning requestIds
+        if (count > 0) {
+            uint256[] memory _tempList = new uint256[](count);
+            for (uint256 i = 0; i < walletRequests[msg.sender].length; i++) {
+                count--;
+                _tempList[count] = walletRequests[msg.sender][i];
+            }
+            requestIds = _tempList;
+        }
+    }
+
+    function getAvailableToClaim() public view returns (uint256 available, uint256[] memory requestIds) {
+        uint256 count;
+        for (uint256 i = 0; i < walletRequests[msg.sender].length; i++) {
+            Request memory _req = requests[walletRequests[msg.sender][i]];
+            //console.log("getAvailableToClaim() claimfromYMD %s timestamp %s", _req.claimfromYMD, timestampToYMD(block.timestamp));
             if (
-                available < availableForRequests &&
+                available < getClaimDailyLimit() &&
                 !_req.isDeactivated &&
                 (_req.requestedAmount - _req.paidAmount) > 0 &&
-                _req.claimfromYMD >= timestampToYMD(block.timestamp)
+                _req.claimfromYMD <= timestampToYMD(block.timestamp)
             ) {
                 // add available amount according daily available for requests
-                available += (available + (_req.requestedAmount - _req.paidAmount) <= availableForRequests)
+                available += (available + (_req.requestedAmount - _req.paidAmount) <= getClaimDailyLimit())
                     ? (_req.requestedAmount - _req.paidAmount)
-                    : availableForRequests;
+                    : getClaimDailyLimit();
                 // count requests
                 count++;
             }
@@ -229,7 +279,7 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
             for (uint256 i = 0; i < walletRequests[msg.sender].length; i++) {
                 Request memory _req = requests[walletRequests[msg.sender][i]];
                 if (
-                    available < availableForRequests &&
+                    available < getClaimDailyLimit() &&
                     !_req.isDeactivated &&
                     (_req.requestedAmount - _req.paidAmount) > 0 &&
                     _req.claimfromYMD >= timestampToYMD(block.timestamp)
