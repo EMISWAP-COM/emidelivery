@@ -8,8 +8,11 @@ const ONE_DAY = 86400;
 const CLAIM_TIMEOUT = 86400; // must be >= 24h
 const CLAIM_DAILY_LIMIT = tokens(50_000);
 const INIT_SUPPLY = tokens(10_000_000_000);
-const EVENT_CLAIMREQUESTED = "0xc9526a3e881ac1f0ac366545becae3075658fdfe4e3f823e8bbe0a075889c497";
+const EVENT_CLAIMREQUESTED = "0x71431efdffe03bc79c5607c1cf67764f4cf3e224fb5e5dfc04178260aa0b9322";
 const FIRST_REQUEST_ID = 0;
+const SECOND_REQUEST_ID = 1;
+const THIRD_REQUEST_ID = 2;
+const FOURTH_REQUEST_ID = 3;
 const FIRST_CLAIMREQUEST = tokens(60_000);
 const ZERO = BigNumber.from(0);
 
@@ -145,5 +148,70 @@ describe("emidelivery", function () {
 
     let requestInfo = await EmiDelivery.requests((await EmiDelivery.getFinishedRequests(Alice.address))[0]);
     expect(requestInfo.requestedAmount).to.be.equal(requestInfo.paidAmount);
+  });
+  it("request Alice and Bob and admin delete Alices request, Alice unfortunately claim and Bob claims succesfull", async function () {
+    await deposite(EmiDelivery, owner);
+    await request(EmiDelivery, Alice, FIRST_CLAIMREQUEST, FIRST_REQUEST_ID, SigWallet, SigWallet_PrivateKey);
+    await request(EmiDelivery, Bob, FIRST_CLAIMREQUEST, SECOND_REQUEST_ID, SigWallet, SigWallet_PrivateKey);
+    await EmiDelivery.connect(owner).removeRequest([FIRST_REQUEST_ID]);
+    
+    // pass claim timeout
+    await passOneDay();
+    
+    // Alice have nothing to claim
+    expect((await EmiDelivery.connect(Alice).getAvailableToClaim()).available).to.be.equal(ZERO);
+    expect((await EmiDelivery.connect(Bob).getAvailableToClaim()).available).to.be.equal(CLAIM_DAILY_LIMIT);
+    
+    // Alice try to claim, but request was removed
+    await expect(EmiDelivery.connect(Alice).claim()).to.be.revertedWith("nothing to claim");
+  });
+  it("request Alice and Bob and admin delete Alices and Bob requests, Alice and Bob unfortunately claim", async function () {
+    await deposite(EmiDelivery, owner);
+    await request(EmiDelivery, Alice, FIRST_CLAIMREQUEST, FIRST_REQUEST_ID, SigWallet, SigWallet_PrivateKey);
+    await request(EmiDelivery, Bob, FIRST_CLAIMREQUEST, SECOND_REQUEST_ID, SigWallet, SigWallet_PrivateKey);
+    await EmiDelivery.connect(owner).removeRequest([FIRST_REQUEST_ID, SECOND_REQUEST_ID]);
+    
+    // pass claim timeout
+    await passOneDay();
+    
+    // Alice and Bob have nothing to claim
+    expect((await EmiDelivery.connect(Alice).getAvailableToClaim()).available).to.be.equal(ZERO);
+    expect((await EmiDelivery.connect(Bob).getAvailableToClaim()).available).to.be.equal(ZERO);
+    
+    // Alice and Bob try to claim, but requests was removed
+    await expect(EmiDelivery.connect(Alice).claim()).to.be.revertedWith("nothing to claim");
+    await expect(EmiDelivery.connect(Bob).claim()).to.be.revertedWith("nothing to claim");
+  });
+  it("request Alice and Bob and admin delete Alices and Bob requests, Alice and Bob unfortunately claim and try again successfully", async function () {
+    await deposite(EmiDelivery, owner);
+    await request(EmiDelivery, Alice, FIRST_CLAIMREQUEST, FIRST_REQUEST_ID, SigWallet, SigWallet_PrivateKey);
+    await request(EmiDelivery, Bob, FIRST_CLAIMREQUEST, SECOND_REQUEST_ID, SigWallet, SigWallet_PrivateKey);
+    await EmiDelivery.connect(owner).removeRequest([FIRST_REQUEST_ID, SECOND_REQUEST_ID]);
+    
+    // pass claim timeout
+    await passOneDay();
+    
+    // Alice and Bob have nothing to claim
+    expect((await EmiDelivery.connect(Alice).getAvailableToClaim()).available).to.be.equal(ZERO);
+    expect((await EmiDelivery.connect(Bob).getAvailableToClaim()).available).to.be.equal(ZERO);
+    
+    // Alice and Bob try to claim, but requests was removed
+    await expect(EmiDelivery.connect(Alice).claim()).to.be.revertedWith("nothing to claim");
+    await expect(EmiDelivery.connect(Bob).claim()).to.be.revertedWith("nothing to claim");
+
+    // Alice and Bob try again
+    await request(EmiDelivery, Alice, FIRST_CLAIMREQUEST, THIRD_REQUEST_ID, SigWallet, SigWallet_PrivateKey);
+    await request(EmiDelivery, Bob, FIRST_CLAIMREQUEST, FOURTH_REQUEST_ID, SigWallet, SigWallet_PrivateKey);
+
+    // pass claim timeout
+    await passOneDay();
+
+    expect((await EmiDelivery.connect(Alice).getAvailableToClaim()).available).to.be.equal(CLAIM_DAILY_LIMIT);
+    expect((await EmiDelivery.connect(Bob).getAvailableToClaim()).available).to.be.equal(CLAIM_DAILY_LIMIT);
+
+    // Alice and Bob try to claim, but requests was removed
+    await EmiDelivery.connect(Alice).claim();
+    // Bob was late
+    await expect(EmiDelivery.connect(Bob).claim()).to.be.revertedWith("nothing to claim");
   });
 });

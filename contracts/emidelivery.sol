@@ -44,6 +44,7 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
         uint256 claimfromYMD; // date for start claiming
         uint256 requestedAmount;
         uint256 paidAmount;
+        uint256 index;      // index at walletRequests
         bool isDeactivated; // false by default means request is actual (not deactivated by admin)
     }
 
@@ -52,11 +53,14 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
     // wallet -> request ids list, to reduce memory usage needs to move (clear from requests) finished id to finishedRequests
     mapping(address => uint256[]) walletRequests;
 
+    // request -> wallet, only added link for getting wallet by requestId
+    mapping(uint256 => address) requestWallet;
+
     // wallet -> finished request ids list
     mapping(address => uint256[]) walletFinishedRequests;
 
-    event claimRequested(address wallet, uint256 reauestId);
-    event claimed(address wallet, uint256 amount);
+    event ClaimRequested(address indexed wallet, uint256 indexed reauestId);
+    event Claimed(address indexed wallet, uint256 amount);
 
     function initialize(
         address _signatureWallet,
@@ -93,7 +97,7 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
             "incorrect signature"
         );
 
-        walletNonce[msg.sender] = nonce;
+        walletNonce[wallet] = nonce;
 
         // set requests
         requests.push(
@@ -101,21 +105,23 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
                 claimfromYMD: timestampToYMD(block.timestamp + claimTimeout),
                 requestedAmount: amount,
                 paidAmount: 0,
+                index: walletRequests[msg.sender].length, // save index
                 isDeactivated: false
             })
         );
 
         lockedForRequests += amount;
 
-        // save request id
-        walletRequests[msg.sender].push(requests.length - 1);
-        emit claimRequested(msg.sender, requests.length - 1);
+        // save request id by wallet
+        walletRequests[msg.sender].push(requests.length - 1); // Request.index
+        // link request to wallet
+        requestWallet[requests.length - 1] = msg.sender;
+        emit ClaimRequested(msg.sender, requests.length - 1);
     }
 
     function claim() public {
         _updateLimits();
         (uint256 available, uint256[] memory requestIds) = getAvailableToClaim();
-        //console.log("claim() available %s", available);
         require(available > 0, "nothing to claim");
         require(available <= currentClaimDailyLimit, "Limit exceeded");
 
@@ -124,7 +130,7 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
         _claimRequests(available, requestIds);
         lockedForRequests -= available;
         deliveryToken.safeTransfer(msg.sender, available);
-        emit claimed(msg.sender, available);
+        emit Claimed(msg.sender, available);
     }
 
     /***************************** internal ****************************/
@@ -161,7 +167,7 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
             if (requests[requestIds[i]].requestedAmount == requests[requestIds[i]].paidAmount) {
                 walletFinishedRequests[msg.sender].push(requestIds[i]);
                 // remove completed reuqest id
-                walletRequests[msg.sender][requestIds[i]] = walletRequests[msg.sender][
+                walletRequests[msg.sender][requests[requestIds[i]].index] = walletRequests[msg.sender][
                     walletRequests[msg.sender].length - 1
                 ];
                 walletRequests[msg.sender].pop();
@@ -204,6 +210,56 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
     function setSignatureWallet(address _signatureWallet) public onlyOwner {
         require(signatureWallet != _signatureWallet, "not changed");
         signatureWallet = _signatureWallet;
+    }
+
+    /**
+     * @dev Owner can transfer out any accidentally sent ERC20 tokens
+     * @param tokenAddress Address of ERC-20 token to transfer
+     * @param beneficiary Address to transfer to
+     * @param amount of tokens to transfer
+     */
+    function transferAnyERC20Token(
+        address tokenAddress,
+        address beneficiary,
+        uint256 amount
+    ) public nonReentrant onlyOwner returns (bool success) {
+        require(tokenAddress != address(0), "address 0!");
+        require(tokenAddress != address(deliveryToken), "not deliveryToken");
+
+        return IERC20Upgradeable(tokenAddress).transfer(beneficiary, amount);
+    }
+
+    /**
+     * @dev admin remove request list
+     * @param requestIds - list of gequests to remove
+     */
+    function removeRequest(uint256[] memory requestIds) public onlyOwner {
+        uint256 freedAmount;
+        address wallet;
+        for (uint256 i = 0; i < requestIds.length; i++) {
+            // if request is active and not completly paid 
+            Request storage req = requests[requestIds[i]];
+            if (!req.isDeactivated && (req.requestedAmount - req.paidAmount) > 0) {
+                // save freed amount
+                freedAmount += (req.requestedAmount - req.paidAmount);
+                // power off request
+                req.isDeactivated = true;
+
+                // get wallet 
+                wallet = requestWallet[requestIds[i]];
+                //finish request
+                walletFinishedRequests[wallet].push(requestIds[i]);
+                // remove completed reuqest id
+                walletRequests[wallet][req.index] = walletRequests[wallet][
+                    walletRequests[wallet].length - 1
+                ];
+                walletRequests[wallet].pop();
+            }
+        }
+        // resurect limit
+        currentClaimDailyLimit += freedAmount;
+        // reduce requested amount
+        lockedForRequests += freedAmount;
     }
 
     /*************************** view ************************************/
@@ -258,7 +314,6 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
         uint256 count;
         for (uint256 i = 0; i < walletRequests[msg.sender].length; i++) {
             Request memory _req = requests[walletRequests[msg.sender][i]];
-            //console.log("getAvailableToClaim() claimfromYMD %s timestamp %s", _req.claimfromYMD, timestampToYMD(block.timestamp));
             if (
                 available < getClaimDailyLimit() &&
                 !_req.isDeactivated &&
