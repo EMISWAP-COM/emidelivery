@@ -21,6 +21,8 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
     address public signatureWallet;
     uint256 public claimTimeout;
     uint256 public claimDailyLimit;
+    // allow only one unclaimed request for the wallet, make new request only after fully claimed previous
+    bool public isOneRequest;
 
     // current rest of daily limit available to claim
     uint256 public currentClaimDailyLimit;
@@ -44,7 +46,7 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
         uint256 claimfromYMD; // date for start claiming
         uint256 requestedAmount;
         uint256 paidAmount;
-        uint256 index;      // index at walletRequests
+        uint256 index; // index at walletRequests
         bool isDeactivated; // false by default means request is actual (not deactivated by admin)
     }
 
@@ -67,7 +69,8 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
         address _deliveryToken,
         address _deliveryAdmin,
         uint256 _claimTimeout,
-        uint256 _claimDailyLimit
+        uint256 _claimDailyLimit,
+        bool _isOneRequest
     ) public virtual initializer {
         __Ownable_init();
         transferOwnership(_deliveryAdmin);
@@ -75,6 +78,7 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
         claimTimeout = _claimTimeout;
         claimDailyLimit = _claimDailyLimit;
         deliveryToken = IERC20Upgradeable(_deliveryToken);
+        isOneRequest = _isOneRequest;
     }
 
     function getWalletNonce() public view returns (uint256) {
@@ -89,6 +93,10 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
     ) public {
         require(wallet == msg.sender, "incorrect sender");
         require(amount <= availableForRequests(), "insufficient reserves");
+        if (isOneRequest) {
+            (uint256 remainder, ) = getRemainderOfRequests();
+            require(isOneRequest && remainder == 0, "unclaimed request exists");
+        }
         // check sign
         bytes32 message = _prefixed(keccak256(abi.encodePacked(wallet, amount, nonce, this)));
 
@@ -177,6 +185,11 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
 
     /****************************** admin ******************************/
 
+    function setisOneRequest(bool newisOneRequest) public onlyOwner {
+        require(isOneRequest != newisOneRequest, "nothing to change");
+        isOneRequest = newisOneRequest;
+    }
+
     /**
      * @dev owner deposit amount for delivery tokens by requests
      * @param amount deposited value of "deliveryToken"
@@ -237,7 +250,7 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
         uint256 freedAmount;
         address wallet;
         for (uint256 i = 0; i < requestIds.length; i++) {
-            // if request is active and not completly paid 
+            // if request is active and not completly paid
             Request storage req = requests[requestIds[i]];
             if (!req.isDeactivated && (req.requestedAmount - req.paidAmount) > 0) {
                 // save freed amount
@@ -245,14 +258,12 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
                 // power off request
                 req.isDeactivated = true;
 
-                // get wallet 
+                // get wallet
                 wallet = requestWallet[requestIds[i]];
                 //finish request
                 walletFinishedRequests[wallet].push(requestIds[i]);
                 // remove completed reuqest id
-                walletRequests[wallet][req.index] = walletRequests[wallet][
-                    walletRequests[wallet].length - 1
-                ];
+                walletRequests[wallet][req.index] = walletRequests[wallet][walletRequests[wallet].length - 1];
                 walletRequests[wallet].pop();
             }
         }
@@ -283,7 +294,7 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
         // fillup returning requestIds
         if (walletFinishedRequests[wallet].length > 0) {
             uint256[] memory _tempList = new uint256[](walletFinishedRequests[wallet].length);
-            for (uint256 i = 0; i < walletFinishedRequests[wallet].length; i++) {                
+            for (uint256 i = 0; i < walletFinishedRequests[wallet].length; i++) {
                 _tempList[i] = walletFinishedRequests[wallet][i];
             }
             requestIds = _tempList;
@@ -310,6 +321,11 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
         }
     }
 
+    /**
+     * @dev get available tokens to claim according claim date, so once requested available will shown after claim date
+     * @return available - tokens amount for the sender wallet
+     * @return requestIds - request ids for the sender wallet
+     */
     function getAvailableToClaim() public view returns (uint256 available, uint256[] memory requestIds) {
         uint256 count;
         for (uint256 i = 0; i < walletRequests[msg.sender].length; i++) {

@@ -14,6 +14,7 @@ async function main() {
   const INIT_SUPPLY = tokens(10_000_000);
   const CLAIM_TIMEOUT = 86400; // must be >= 24h
   const CLAIM_DAILY_LIMIT = tokens(50_000);
+  const SWITCH_ON_ONEREQUEST = true;
   const CHAINID = await hre.network.provider.send("eth_chainId");
 
   // hardhat => 800
@@ -27,6 +28,7 @@ async function main() {
     deployer.address,
     CLAIM_TIMEOUT,
     CLAIM_DAILY_LIMIT,
+    SWITCH_ON_ONEREQUEST,
   ]);
   await timeout(TIME_OUT);
 

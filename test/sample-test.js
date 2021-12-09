@@ -14,6 +14,9 @@ const SECOND_REQUEST_ID = 1;
 const THIRD_REQUEST_ID = 2;
 const FOURTH_REQUEST_ID = 3;
 const FIRST_CLAIMREQUEST = tokens(60_000);
+const ONETOKEN_CLAIMREQUEST = tokens(1);
+const SWITCH_ON_ONEREQUEST = true;
+const SWITCH_OFF_ONEREQUEST = false;
 const ZERO = BigNumber.from(0);
 
 async function deposite(delivery, wallet) {
@@ -60,6 +63,7 @@ describe("emidelivery", function () {
       owner.address,
       CLAIM_TIMEOUT,
       CLAIM_DAILY_LIMIT,
+      SWITCH_ON_ONEREQUEST,
     ]);
 
     await EmiDelivery.deployed();
@@ -154,14 +158,14 @@ describe("emidelivery", function () {
     await request(EmiDelivery, Alice, FIRST_CLAIMREQUEST, FIRST_REQUEST_ID, SigWallet, SigWallet_PrivateKey);
     await request(EmiDelivery, Bob, FIRST_CLAIMREQUEST, SECOND_REQUEST_ID, SigWallet, SigWallet_PrivateKey);
     await EmiDelivery.connect(owner).removeRequest([FIRST_REQUEST_ID]);
-    
+
     // pass claim timeout
     await passOneDay();
-    
+
     // Alice have nothing to claim
     expect((await EmiDelivery.connect(Alice).getAvailableToClaim()).available).to.be.equal(ZERO);
     expect((await EmiDelivery.connect(Bob).getAvailableToClaim()).available).to.be.equal(CLAIM_DAILY_LIMIT);
-    
+
     // Alice try to claim, but request was removed
     await expect(EmiDelivery.connect(Alice).claim()).to.be.revertedWith("nothing to claim");
   });
@@ -170,14 +174,14 @@ describe("emidelivery", function () {
     await request(EmiDelivery, Alice, FIRST_CLAIMREQUEST, FIRST_REQUEST_ID, SigWallet, SigWallet_PrivateKey);
     await request(EmiDelivery, Bob, FIRST_CLAIMREQUEST, SECOND_REQUEST_ID, SigWallet, SigWallet_PrivateKey);
     await EmiDelivery.connect(owner).removeRequest([FIRST_REQUEST_ID, SECOND_REQUEST_ID]);
-    
+
     // pass claim timeout
     await passOneDay();
-    
+
     // Alice and Bob have nothing to claim
     expect((await EmiDelivery.connect(Alice).getAvailableToClaim()).available).to.be.equal(ZERO);
     expect((await EmiDelivery.connect(Bob).getAvailableToClaim()).available).to.be.equal(ZERO);
-    
+
     // Alice and Bob try to claim, but requests was removed
     await expect(EmiDelivery.connect(Alice).claim()).to.be.revertedWith("nothing to claim");
     await expect(EmiDelivery.connect(Bob).claim()).to.be.revertedWith("nothing to claim");
@@ -187,14 +191,14 @@ describe("emidelivery", function () {
     await request(EmiDelivery, Alice, FIRST_CLAIMREQUEST, FIRST_REQUEST_ID, SigWallet, SigWallet_PrivateKey);
     await request(EmiDelivery, Bob, FIRST_CLAIMREQUEST, SECOND_REQUEST_ID, SigWallet, SigWallet_PrivateKey);
     await EmiDelivery.connect(owner).removeRequest([FIRST_REQUEST_ID, SECOND_REQUEST_ID]);
-    
+
     // pass claim timeout
     await passOneDay();
-    
+
     // Alice and Bob have nothing to claim
     expect((await EmiDelivery.connect(Alice).getAvailableToClaim()).available).to.be.equal(ZERO);
     expect((await EmiDelivery.connect(Bob).getAvailableToClaim()).available).to.be.equal(ZERO);
-    
+
     // Alice and Bob try to claim, but requests was removed
     await expect(EmiDelivery.connect(Alice).claim()).to.be.revertedWith("nothing to claim");
     await expect(EmiDelivery.connect(Bob).claim()).to.be.revertedWith("nothing to claim");
@@ -213,5 +217,81 @@ describe("emidelivery", function () {
     await EmiDelivery.connect(Alice).claim();
     // Bob was late
     await expect(EmiDelivery.connect(Bob).claim()).to.be.revertedWith("nothing to claim");
+  });
+  it("Alice and Bob try to request twice and get error", async function () {
+    await deposite(EmiDelivery, owner);
+    await request(EmiDelivery, Alice, ONETOKEN_CLAIMREQUEST, FIRST_REQUEST_ID, SigWallet, SigWallet_PrivateKey);
+    await request(EmiDelivery, Bob, ONETOKEN_CLAIMREQUEST, SECOND_REQUEST_ID, SigWallet, SigWallet_PrivateKey);
+    await expect(
+      request(EmiDelivery, Alice, ONETOKEN_CLAIMREQUEST, THIRD_REQUEST_ID, SigWallet, SigWallet_PrivateKey)
+    ).to.be.revertedWith("unclaimed request exists");
+    await expect(
+      request(EmiDelivery, Bob, ONETOKEN_CLAIMREQUEST, FOURTH_REQUEST_ID, SigWallet, SigWallet_PrivateKey)
+    ).to.be.revertedWith("unclaimed request exists");
+  });
+  it("Alice and Bob try to request twice and get error, fully claimed and request again successfully", async function () {
+    await deposite(EmiDelivery, owner);
+    await request(EmiDelivery, Alice, ONETOKEN_CLAIMREQUEST, FIRST_REQUEST_ID, SigWallet, SigWallet_PrivateKey);
+    await request(EmiDelivery, Bob, ONETOKEN_CLAIMREQUEST, SECOND_REQUEST_ID, SigWallet, SigWallet_PrivateKey);
+    await expect(
+      request(EmiDelivery, Alice, ONETOKEN_CLAIMREQUEST, THIRD_REQUEST_ID, SigWallet, SigWallet_PrivateKey)
+    ).to.be.revertedWith("unclaimed request exists");
+    await expect(
+      request(EmiDelivery, Bob, ONETOKEN_CLAIMREQUEST, FOURTH_REQUEST_ID, SigWallet, SigWallet_PrivateKey)
+    ).to.be.revertedWith("unclaimed request exists");
+
+    // pass claim timeout
+    await passOneDay();
+
+    // Alice and Bob try to claim, but requests was removed
+    await EmiDelivery.connect(Alice).claim();
+    await EmiDelivery.connect(Bob).claim();
+
+    await request(EmiDelivery, Alice, ONETOKEN_CLAIMREQUEST, THIRD_REQUEST_ID, SigWallet, SigWallet_PrivateKey);
+    await request(EmiDelivery, Bob, ONETOKEN_CLAIMREQUEST, FOURTH_REQUEST_ID, SigWallet, SigWallet_PrivateKey);
+
+    // all requested and the same time is unavailable to claim
+    expect((await EmiDelivery.connect(Alice).getAvailableToClaim()).available).to.be.equal(ZERO);
+    expect((await EmiDelivery.connect(Bob).getAvailableToClaim()).available).to.be.equal(ZERO);
+
+    // pass claim timeout
+    await passOneDay();
+
+    // all requested are ready to claim
+    expect((await EmiDelivery.connect(Alice).getAvailableToClaim()).available).to.be.equal(ONETOKEN_CLAIMREQUEST);
+    expect((await EmiDelivery.connect(Bob).getAvailableToClaim()).available).to.be.equal(ONETOKEN_CLAIMREQUEST);
+  });
+  it("Alice and Bob try to request twice and get error, fully claimed and request again successfully", async function () {
+    await deposite(EmiDelivery, owner);
+    await request(EmiDelivery, Alice, ONETOKEN_CLAIMREQUEST, FIRST_REQUEST_ID, SigWallet, SigWallet_PrivateKey);
+    await request(EmiDelivery, Bob, ONETOKEN_CLAIMREQUEST, SECOND_REQUEST_ID, SigWallet, SigWallet_PrivateKey);
+    await expect(
+      request(EmiDelivery, Alice, ONETOKEN_CLAIMREQUEST, THIRD_REQUEST_ID, SigWallet, SigWallet_PrivateKey)
+    ).to.be.revertedWith("unclaimed request exists");
+    await expect(
+      request(EmiDelivery, Bob, ONETOKEN_CLAIMREQUEST, FOURTH_REQUEST_ID, SigWallet, SigWallet_PrivateKey)
+    ).to.be.revertedWith("unclaimed request exists");
+
+    // admin allows multiple requests
+    await EmiDelivery.connect(owner).setisOneRequest(SWITCH_OFF_ONEREQUEST);
+
+    // and now successfully requested again
+    await request(EmiDelivery, Alice, ONETOKEN_CLAIMREQUEST, THIRD_REQUEST_ID, SigWallet, SigWallet_PrivateKey);
+    await request(EmiDelivery, Bob, ONETOKEN_CLAIMREQUEST, FOURTH_REQUEST_ID, SigWallet, SigWallet_PrivateKey);
+
+    // pass claim timeout
+    await passOneDay();
+
+    // all requested are available to claim
+    expect((await EmiDelivery.connect(Alice).getAvailableToClaim()).available).to.be.equal(
+      BigNumber.from(ONETOKEN_CLAIMREQUEST).add(BigNumber.from(ONETOKEN_CLAIMREQUEST))
+    );
+    expect((await EmiDelivery.connect(Bob).getAvailableToClaim()).available).to.be.equal(
+      BigNumber.from(ONETOKEN_CLAIMREQUEST).add(BigNumber.from(ONETOKEN_CLAIMREQUEST))
+    );
+
+    // Alice and Bob try to claim, but requests was removed
+    await EmiDelivery.connect(Alice).claim();
+    await EmiDelivery.connect(Bob).claim();
   });
 });
