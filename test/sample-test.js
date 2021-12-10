@@ -5,7 +5,8 @@ const Wallet = require("ethereumjs-wallet");
 const { BigNumber } = require("@ethersproject/bignumber");
 
 const ONE_DAY = 86400;
-const CLAIM_TIMEOUT = 86400; // must be >= 24h
+const CLAIM_DAYS = 1
+const CLAIM_TIMEOUT = CLAIM_DAYS * 24 * 60 * 60; // must be >= 24h
 const CLAIM_DAILY_LIMIT = tokens(50_000);
 const INIT_SUPPLY = tokens(10_000_000_000);
 const EVENT_CLAIMREQUESTED = "0x71431efdffe03bc79c5607c1cf67764f4cf3e224fb5e5dfc04178260aa0b9322";
@@ -35,7 +36,7 @@ async function request(contract, wallet, amount, must_be_request_id, sig_wallet,
     return x.topics[0] == EVENT_CLAIMREQUESTED;
   });
   expect(eReq[0].args.wallet).to.be.equal(wallet.address);
-  expect(must_be_request_id).to.be.equal(eReq[0].args.reauestId);
+  expect(must_be_request_id).to.be.equal(eReq[0].args.requestId);
 }
 
 async function passOneDay() {
@@ -115,6 +116,11 @@ describe("emidelivery", function () {
 
     // try to claim before timeout passed
     await expect(EmiDelivery.connect(Alice).claim()).to.be.revertedWith("nothing to claim");
+
+    // get nearest request date
+    let dayNow = new Date((await getBlockTime(ethers)) * 1000);
+    let YMDNow = dayNow.getFullYear()*10000 + (dayNow.getMonth()+1)*100 + dayNow.getDate();
+    expect((await EmiDelivery.connect(Alice).getRemainderOfRequests()).veryFirstRequestDate.sub(BigNumber.from(YMDNow))).to.be.equal(CLAIM_DAYS)
 
     // pass claim timeout
     await passOneDay();

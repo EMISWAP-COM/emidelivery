@@ -61,7 +61,7 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
     // wallet -> finished request ids list
     mapping(address => uint256[]) walletFinishedRequests;
 
-    event ClaimRequested(address indexed wallet, uint256 indexed reauestId);
+    event ClaimRequested(address indexed wallet, uint256 indexed requestId);
     event Claimed(address indexed wallet, uint256 amount);
 
     function initialize(
@@ -94,7 +94,7 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
         require(wallet == msg.sender, "incorrect sender");
         require(amount <= availableForRequests(), "insufficient reserves");
         if (isOneRequest) {
-            (uint256 remainder, ) = getRemainderOfRequests();
+            (uint256 remainder, , ) = getRemainderOfRequests();
             require(isOneRequest && remainder == 0, "unclaimed request exists");
         }
         // check sign
@@ -301,12 +301,23 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
         }
     }
 
-    function getRemainderOfRequests() public view returns (uint256 remainder, uint256[] memory requestIds) {
+    function getRemainderOfRequests()
+        public
+        view
+        returns (
+            uint256 remainder,
+            uint256[] memory requestIds,
+            uint256 veryFirstRequestDate
+        )
+    {
         uint256 count;
         for (uint256 i = 0; i < walletRequests[msg.sender].length; i++) {
             Request memory _req = requests[walletRequests[msg.sender][i]];
             // add remainder amount for all requests
             remainder += _req.requestedAmount - _req.paidAmount;
+            if (veryFirstRequestDate == 0 || _req.claimfromYMD <= veryFirstRequestDate) {
+                veryFirstRequestDate = _req.claimfromYMD;
+            }
             // count requests
             count++;
         }
