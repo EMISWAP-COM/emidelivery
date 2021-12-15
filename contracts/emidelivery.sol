@@ -24,6 +24,25 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
     // allow only one unclaimed request for the wallet, make new request only after fully claimed previous
     bool public isOneRequest;
 
+    /**
+     * working day shift feature, to make YMD shifted of block.timestamp
+     *
+     * cases:
+     *   Paris local time from block.timestamp (GMT) + 1 hour
+     *   localShift = true
+     *   positiveShift = 1 * 60 * 60
+     *
+     *   NewYork local time from block.timestamp (GMT) - 5 hour
+     *   localShift = false
+     *   positiveShift = 5 * 60 * 60
+     *
+     *   Tokyo local time from block.timestamp (GMT) + 9 hour
+     *   localShift = true
+     *   positiveShift = 9 * 60 * 60
+     */
+    bool public positiveShift;
+    uint256 public localShift;
+
     // current rest of daily limit available to claim
     uint256 public currentClaimDailyLimit;
     uint256 public lastYMD;
@@ -61,6 +80,9 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
     // wallet -> finished request ids list
     mapping(address => uint256[]) walletFinishedRequests;
 
+    // operator - activated
+    mapping(address => bool) operators;
+
     event ClaimRequested(address indexed wallet, uint256 indexed requestId);
     event Claimed(address indexed wallet, uint256 amount);
 
@@ -70,7 +92,9 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
         address _deliveryAdmin,
         uint256 _claimTimeout,
         uint256 _claimDailyLimit,
-        bool _isOneRequest
+        bool _isOneRequest,
+        uint256 _localShift,
+        bool _positiveShift
     ) public virtual initializer {
         __Ownable_init();
         transferOwnership(_deliveryAdmin);
@@ -79,6 +103,9 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
         claimDailyLimit = _claimDailyLimit;
         deliveryToken = IERC20Upgradeable(_deliveryToken);
         isOneRequest = _isOneRequest;
+        operators[_deliveryAdmin] = true;
+        localShift = _localShift;
+        positiveShift = _positiveShift;
     }
 
     function getWalletNonce() public view returns (uint256) {
@@ -94,7 +121,7 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
         require(wallet == msg.sender, "incorrect sender");
         require(amount <= availableForRequests(), "insufficient reserves");
         if (isOneRequest) {
-            (uint256 remainder, , ) = getRemainderOfRequests();
+            (uint256 remainder, , , ) = getRemainderOfRequests();
             require(isOneRequest && remainder == 0, "unclaimed request exists");
         }
         // check sign
@@ -110,7 +137,7 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
         // set requests
         requests.push(
             Request({
-                claimfromYMD: timestampToYMD(block.timestamp + claimTimeout),
+                claimfromYMD: timestampToYMD(localTime() + claimTimeout),
                 requestedAmount: amount,
                 paidAmount: 0,
                 index: walletRequests[msg.sender].length, // save index
@@ -148,9 +175,9 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
      */
     function _updateLimits() internal {
         // set next day limits
-        if (lastYMD < timestampToYMD(block.timestamp)) {
+        if (lastYMD < timestampToYMD(localTime())) {
             currentClaimDailyLimit = claimDailyLimit;
-            lastYMD = timestampToYMD(block.timestamp);
+            lastYMD = timestampToYMD(localTime());
         }
     }
 
@@ -158,7 +185,7 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
         require(requestIds.length > 0, "no requests for claiming");
         // go by requests and claim available amount one by one
         for (uint256 i = 0; i < requestIds.length; i++) {
-            require(requests[requestIds[i]].claimfromYMD <= timestampToYMD(block.timestamp), "incorrect claim");
+            require(requests[requestIds[i]].claimfromYMD <= timestampToYMD(localTime()), "incorrect claim");
             if (available <= 0) return;
             // claim available
             uint256 restOfPayment = requests[requestIds[i]].requestedAmount - requests[requestIds[i]].paidAmount;
@@ -184,6 +211,14 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
     }
 
     /****************************** admin ******************************/
+    function setLocalTimeShift(uint256 newLocalShift, bool newPositiveShift) public onlyOwner {
+        positiveShift = newPositiveShift;
+        localShift = newLocalShift;
+    }
+
+    function setOperator(address newOperator, bool isActive) public onlyOwner {
+        operators[newOperator] = isActive;
+    }
 
     function setisOneRequest(bool newisOneRequest) public onlyOwner {
         require(isOneRequest != newisOneRequest, "nothing to change");
@@ -243,10 +278,11 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
     }
 
     /**
-     * @dev admin remove request list
+     * @dev only "operator" remove request list
      * @param requestIds - list of gequests to remove
      */
-    function removeRequest(uint256[] memory requestIds) public onlyOwner {
+    function removeRequest(uint256[] memory requestIds) public {
+        require(operators[msg.sender], "only actual operator allowed");
         uint256 freedAmount;
         address wallet;
         for (uint256 i = 0; i < requestIds.length; i++) {
@@ -274,8 +310,22 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
     }
 
     /*************************** view ************************************/
+    /**
+     * @dev get block.timestamp corrected with local settings shift
+     */
+    function localTime() public view returns (uint256 localTimeStamp) {
+        return positiveShift ? block.timestamp + localShift : block.timestamp - localShift;
+    }
+
+    /**
+     * @dev get today starting timestamp and tomorrow starting timestamp
+     */
+    function getDatesStarts() public view returns (uint256 todayStart, uint256 tomorrowStart) {
+        return (localTime(), localTime() + 24 * 60 * 60);
+    }
+
     function getClaimDailyLimit() public view returns (uint256 limit) {
-        if (lastYMD < timestampToYMD(block.timestamp)) {
+        if (lastYMD < timestampToYMD(localTime())) {
             limit = claimDailyLimit; // if not updated this day
         } else {
             limit = currentClaimDailyLimit; // if updated
@@ -301,11 +351,19 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
         }
     }
 
+    /**
+     * @dev get remainder for actual requests
+     * @return remainderTotal - total reuqested amount, not respected day limits
+     * @return remainderPreparedForClaim - total reuqested amount, ready to claim at this day, not respected day limits
+     * @return requestIds - list of actual request IDs
+     * @return veryFirstRequestDate very first request claim-ready day from actual requests
+     */
     function getRemainderOfRequests()
         public
         view
         returns (
-            uint256 remainder,
+            uint256 remainderTotal,
+            uint256 remainderPreparedForClaim,
             uint256[] memory requestIds,
             uint256 veryFirstRequestDate
         )
@@ -313,10 +371,14 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
         uint256 count;
         for (uint256 i = 0; i < walletRequests[msg.sender].length; i++) {
             Request memory _req = requests[walletRequests[msg.sender][i]];
-            // add remainder amount for all requests
-            remainder += _req.requestedAmount - _req.paidAmount;
+            // add remainderTotal amount for all requests
+            remainderTotal += _req.requestedAmount - _req.paidAmount;
             if (veryFirstRequestDate == 0 || _req.claimfromYMD <= veryFirstRequestDate) {
                 veryFirstRequestDate = _req.claimfromYMD;
+            }
+            // calc amounts prepared for claim not respected day limits
+            if (_req.claimfromYMD <= timestampToYMD(localTime())) {
+                remainderPreparedForClaim += _req.requestedAmount - _req.paidAmount;
             }
             // count requests
             count++;
@@ -333,7 +395,7 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
     }
 
     /**
-     * @dev get available tokens to claim according claim date, so once requested available will shown after claim date
+     * @dev get available tokens to claim according claim date and day limits, so once requested available will shown after claim date
      * @return available - tokens amount for the sender wallet
      * @return requestIds - request ids for the sender wallet
      */
@@ -345,7 +407,7 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
                 available < getClaimDailyLimit() &&
                 !_req.isDeactivated &&
                 (_req.requestedAmount - _req.paidAmount) > 0 &&
-                _req.claimfromYMD <= timestampToYMD(block.timestamp)
+                _req.claimfromYMD <= timestampToYMD(localTime())
             ) {
                 // add available amount according daily available for requests
                 available += (available + (_req.requestedAmount - _req.paidAmount) <= getClaimDailyLimit())
@@ -364,7 +426,7 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
                     available < getClaimDailyLimit() &&
                     !_req.isDeactivated &&
                     (_req.requestedAmount - _req.paidAmount) > 0 &&
-                    _req.claimfromYMD >= timestampToYMD(block.timestamp)
+                    _req.claimfromYMD >= timestampToYMD(localTime())
                 ) {
                     count--;
                     // save request id

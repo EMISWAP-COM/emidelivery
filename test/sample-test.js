@@ -5,7 +5,7 @@ const Wallet = require("ethereumjs-wallet");
 const { BigNumber } = require("@ethersproject/bignumber");
 
 const ONE_DAY = 86400;
-const CLAIM_DAYS = 1
+const CLAIM_DAYS = 1;
 const CLAIM_TIMEOUT = CLAIM_DAYS * 24 * 60 * 60; // must be >= 24h
 const CLAIM_DAILY_LIMIT = tokens(50_000);
 const INIT_SUPPLY = tokens(10_000_000_000);
@@ -18,6 +18,7 @@ const FIRST_CLAIMREQUEST = tokens(60_000);
 const ONETOKEN_CLAIMREQUEST = tokens(1);
 const SWITCH_ON_ONEREQUEST = true;
 const SWITCH_OFF_ONEREQUEST = false;
+const SHIFT_SECONDS = 1 * 24 * 60 * 60;
 const ZERO = BigNumber.from(0);
 
 async function deposite(delivery, wallet) {
@@ -65,12 +66,49 @@ describe("emidelivery", function () {
       CLAIM_TIMEOUT,
       CLAIM_DAILY_LIMIT,
       SWITCH_ON_ONEREQUEST,
+      0,
+      true,
     ]);
 
     await EmiDelivery.deployed();
 
     await esw.transfer(owner.address, await esw.balanceOf(deployer.address));
     await esw.connect(owner).approve(EmiDelivery.address, await esw.balanceOf(owner.address));
+  });
+
+  it("check converstion YMD to datetime and reverse are correct", async function () {
+    expect((await EmiDelivery.timestampToYMD(await EmiDelivery.YMDToTimestamp("20210229"))).toString()).to.be.equal(
+      "20210301"
+    );
+    expect((await EmiDelivery.timestampToYMD(await EmiDelivery.YMDToTimestamp("20200229"))).toString()).to.be.equal(
+      "20200229"
+    );
+    expect((await EmiDelivery.timestampToYMD(await EmiDelivery.YMDToTimestamp("20211231"))).toString()).to.be.equal(
+      "20211231"
+    );
+    expect((await EmiDelivery.timestampToYMD(await EmiDelivery.YMDToTimestamp("20211232"))).toString()).to.be.equal(
+      "20220101"
+    );
+  });
+
+  it("get localTime(), getDatesStarts() in YMD view and same with shift dates", async function () {
+    let TodayStart = (await EmiDelivery.getDatesStarts()).todayStart;
+    let TomorrowStart = (await EmiDelivery.getDatesStarts()).tomorrowStart;
+    let LocalTime = await EmiDelivery.localTime();
+
+    expect(TodayStart).to.be.equal(LocalTime);
+
+    // shift dates + 24h
+    await EmiDelivery.connect(owner).setLocalTimeShift(BigNumber.from(SHIFT_SECONDS).toString(), true);
+
+    let TodayStart_shifted = (await EmiDelivery.getDatesStarts()).todayStart;
+    let TomorrowStart_shifted = (await EmiDelivery.getDatesStarts()).tomorrowStart;
+    let LocalTime_shifted = await EmiDelivery.localTime();
+
+    // add 1 second when shifting executes
+    expect(LocalTime_shifted).to.be.equal(BigNumber.from(LocalTime).add(SHIFT_SECONDS).add(1));
+    expect(TodayStart_shifted).to.be.equal(BigNumber.from(TodayStart).add(SHIFT_SECONDS).add(1));
+    expect(TomorrowStart_shifted).to.be.equal(BigNumber.from(TomorrowStart).add(SHIFT_SECONDS).add(1));
   });
 
   it("owner deposite/withdraw", async function () {
@@ -119,22 +157,33 @@ describe("emidelivery", function () {
 
     // get nearest request date
     let dayNow = new Date((await getBlockTime(ethers)) * 1000);
-    let YMDNow = dayNow.getFullYear()*10000 + (dayNow.getMonth()+1)*100 + dayNow.getDate();
-    expect((await EmiDelivery.connect(Alice).getRemainderOfRequests()).veryFirstRequestDate.sub(BigNumber.from(YMDNow))).to.be.equal(CLAIM_DAYS)
+    let YMDNow = dayNow.getFullYear() * 10000 + (dayNow.getMonth() + 1) * 100 + dayNow.getDate();
+    expect(
+      (await EmiDelivery.connect(Alice).getRemainderOfRequests()).veryFirstRequestDate.sub(BigNumber.from(YMDNow))
+    ).to.be.equal(CLAIM_DAYS);
+    expect((await EmiDelivery.connect(Alice).getRemainderOfRequests()).remainderPreparedForClaim).to.be.equal(ZERO);
 
     // pass claim timeout
     await passOneDay();
 
     expect((await EmiDelivery.connect(Alice).getAvailableToClaim()).available).to.be.equal(CLAIM_DAILY_LIMIT);
+    expect((await EmiDelivery.connect(Alice).getRemainderOfRequests()).remainderPreparedForClaim).to.be.equal(
+      FIRST_CLAIMREQUEST
+    );
+
     await EmiDelivery.connect(Alice).claim();
     expect(await esw.balanceOf(Alice.address)).to.be.equal(CLAIM_DAILY_LIMIT);
+
+    expect((await EmiDelivery.connect(Alice).getRemainderOfRequests()).remainderPreparedForClaim).to.be.equal(
+      BigNumber.from(FIRST_CLAIMREQUEST).sub(BigNumber.from(CLAIM_DAILY_LIMIT))
+    );
 
     // rest of requests (Alice)
     expect(await EmiDelivery.lockedForRequests()).to.be.equal(
       BigNumber.from(FIRST_CLAIMREQUEST).sub(BigNumber.from(CLAIM_DAILY_LIMIT))
     );
 
-    expect((await EmiDelivery.connect(Alice).getRemainderOfRequests()).remainder).to.be.equal(
+    expect((await EmiDelivery.connect(Alice).getRemainderOfRequests()).remainderTotal).to.be.equal(
       BigNumber.from(FIRST_CLAIMREQUEST).sub(BigNumber.from(CLAIM_DAILY_LIMIT))
     );
 
@@ -154,10 +203,23 @@ describe("emidelivery", function () {
     // Alice got 60_000 and request completed
     expect(await esw.balanceOf(Alice.address)).to.be.equal(FIRST_CLAIMREQUEST);
     expect((await EmiDelivery.connect(Alice).getAvailableToClaim()).available).to.be.equal(ZERO);
-    expect((await EmiDelivery.connect(Alice).getRemainderOfRequests()).remainder).to.be.equal(ZERO);
+    expect((await EmiDelivery.connect(Alice).getRemainderOfRequests()).remainderTotal).to.be.equal(ZERO);
 
     let requestInfo = await EmiDelivery.requests((await EmiDelivery.getFinishedRequests(Alice.address))[0]);
     expect(requestInfo.requestedAmount).to.be.equal(requestInfo.paidAmount);
+  });
+  it("request Alice and Bob and Clarc try to delete Alices and Bob requests with no operators rights", async function () {
+    await deposite(EmiDelivery, owner);
+    await request(EmiDelivery, Alice, FIRST_CLAIMREQUEST, FIRST_REQUEST_ID, SigWallet, SigWallet_PrivateKey);
+    await request(EmiDelivery, Bob, FIRST_CLAIMREQUEST, SECOND_REQUEST_ID, SigWallet, SigWallet_PrivateKey);
+    await expect(EmiDelivery.connect(Clarc).removeRequest([FIRST_REQUEST_ID, SECOND_REQUEST_ID])).to.be.revertedWith(
+      "only actual operator allowed"
+    );
+
+    // Clarc become operator
+    await EmiDelivery.connect(owner).setOperator(Clarc.address, true);
+    // Successfully removed requests
+    await EmiDelivery.connect(Clarc).removeRequest([FIRST_REQUEST_ID, SECOND_REQUEST_ID]);
   });
   it("request Alice and Bob and admin delete Alices request, Alice unfortunately claim and Bob claims succesfull", async function () {
     await deposite(EmiDelivery, owner);

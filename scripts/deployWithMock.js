@@ -16,6 +16,8 @@ async function main() {
   const CLAIM_DAILY_LIMIT = tokens(50_000);
   const SWITCH_ON_ONEREQUEST = true;
   const CHAINID = await hre.network.provider.send("eth_chainId");
+  const LOCALSHIFT = 3;
+  const POSITIVESHIFT = true;
 
   // hardhat => 800
   // mumbai => 6000
@@ -29,6 +31,8 @@ async function main() {
     CLAIM_TIMEOUT,
     CLAIM_DAILY_LIMIT,
     SWITCH_ON_ONEREQUEST,
+    LOCALSHIFT,
+    POSITIVESHIFT,
   ]);
   await timeout(TIME_OUT);
 

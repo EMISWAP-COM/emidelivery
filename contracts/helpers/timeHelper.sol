@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.6.0 <0.9.0;
 
+//import "hardhat/console.sol";
+
 // code based on BokkyPooBah's DateTime Library v1.01, thank you BokkyPooBah!
 // ----------------------------------------------------------------------------
 // BokkyPooBah's DateTime Library v1.01
@@ -75,6 +77,50 @@ abstract contract timeHelper {
         day = uint256(_day);
     }
 
+    // ------------------------------------------------------------------------
+    // Calculate the number of days from 1970/01/01 to year/month/day using
+    // the date conversion algorithm from
+    //   http://aa.usno.navy.mil/faq/docs/JD_Formula.php
+    // and subtracting the offset 2440588 so that 1970/01/01 is day 0
+    //
+    // days = day
+    //      - 32075
+    //      + 1461 * (year + 4800 + (month - 14) / 12) / 4
+    //      + 367 * (month - 2 - (month - 14) / 12 * 12) / 12
+    //      - 3 * ((year + 4900 + (month - 14) / 12) / 100) / 4
+    //      - offset
+    // ------------------------------------------------------------------------
+    function _daysFromDate(
+        uint256 year,
+        uint256 month,
+        uint256 day
+    ) internal pure returns (uint256 _days) {
+        require(year >= 1970);
+        int256 _year = int256(year);
+        int256 _month = int256(month);
+        int256 _day = int256(day);
+
+        int256 __days = _day -
+            32075 +
+            (1461 * (_year + 4800 + (_month - 14) / 12)) /
+            4 +
+            (367 * (_month - 2 - ((_month - 14) / 12) * 12)) /
+            12 -
+            (3 * ((_year + 4900 + (_month - 14) / 12) / 100)) /
+            4 -
+            OFFSET19700101;
+
+        _days = uint256(__days);
+    }
+
+    function timestampFromDate(
+        uint256 year,
+        uint256 month,
+        uint256 day
+    ) internal pure returns (uint256 timestamp) {
+        timestamp = _daysFromDate(year, month, day) * SECONDS_PER_DAY;
+    }
+
     function timestampToDate(uint256 timestamp)
         internal
         pure
@@ -90,5 +136,12 @@ abstract contract timeHelper {
     function timestampToYMD(uint256 timestamp) public pure returns (uint256 ymd) {
         (uint256 year, uint256 month, uint256 day) = timestampToDate(timestamp);
         ymd = year * 10000 + month * 100 + day;
+    }
+
+    function YMDToTimestamp(uint256 ymd) public pure returns (uint256 timestamp) {
+        uint256 year = ymd / 10000;
+        uint256 month = (ymd - year * 10000) / 100;
+        uint256 day = ymd - year * 10000 - month * 100;
+        return timestampFromDate(year, month, day);
     }
 }
