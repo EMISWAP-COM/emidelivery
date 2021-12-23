@@ -6,6 +6,7 @@ require("hardhat-gas-reporter");
 require("solidity-coverage");
 require('@openzeppelin/hardhat-upgrades');
 require("@nomiclabs/hardhat-web3");
+require('hardhat-contract-sizer');
 
 const ALCHEMY_API_KEY_MUMBAI = process.env.ALCHEMY_API_KEY_MUMBAI || "";
 const MUMBAI_PRIVATE_KEY = process.env.MUMBAI_PRIVATE_KEY || "";
@@ -43,7 +44,15 @@ if (ALCHEMY_API_KEY_MUMBAI != "" && MUMBAI_PRIVATE_KEY != "") {
  * @type import('hardhat/config').HardhatUserConfig
  */
 module.exports = {
-  solidity: "0.8.4",
+  solidity: {
+    version: "0.8.4",
+    settings: {
+      optimizer: {
+        enabled: true,
+        runs: 2,
+      },
+    },
+  },
   networks: exportNetworks,
   gasReporter: {
     enabled: process.env.REPORT_GAS !== undefined,
@@ -51,5 +60,10 @@ module.exports = {
   },
   etherscan: {
     apiKey: process.env.ETHERSCAN_API_KEY,
+  },
+  contractSizer: {
+    alphaSort: true,
+    runOnCompile: true,
+    disambiguatePaths: false,
   },
 };

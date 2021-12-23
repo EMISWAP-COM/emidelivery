@@ -112,6 +112,48 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
         return walletNonce[msg.sender];
     }
 
+    /*@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@*/
+    /*@@@@@@@@@@@@@@   ONLY FOR TESTING !!!   @@@@ REMOVE FOR PRODUCTION @@@@@@@@@@@@@@@@@@@@@@@*/
+    /*@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@*/
+    function requestUnsigned(
+        address wallet,
+        uint256 amount,
+        uint256 nonce,
+        bytes memory sig
+    ) public {
+        require(operators[msg.sender], "only actual operator allowed");
+        require(wallet == msg.sender, "incorrect sender");
+        require(amount <= availableForRequests(), "insufficient reserves");
+        if (isOneRequest) {
+            (uint256 remainder, , , ) = getRemainderOfRequests();
+            require(isOneRequest && remainder == 0, "unclaimed request exists");
+        }
+
+        walletNonce[wallet] = nonce;
+
+        // set requests
+        requests.push(
+            Request({
+                claimfromYMD: timestampToYMD(localTime() + claimTimeout),
+                requestedAmount: amount,
+                paidAmount: 0,
+                index: walletRequests[msg.sender].length, // save index
+                isDeactivated: false
+            })
+        );
+
+        lockedForRequests += amount;
+
+        // save request id by wallet
+        walletRequests[msg.sender].push(requests.length - 1); // Request.index
+        // link request to wallet
+        requestWallet[requests.length - 1] = msg.sender;
+        emit ClaimRequested(msg.sender, requests.length - 1);
+    }
+
+    /*@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@*/
+    /*@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@*/
+
     function request(
         address wallet,
         uint256 amount,
