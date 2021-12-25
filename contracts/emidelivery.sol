@@ -81,10 +81,15 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
     mapping(address => uint256[]) walletFinishedRequests;
 
     // operator - activated
-    mapping(address => bool) operators;
+    mapping(address => bool) public operators;
 
     event ClaimRequested(address indexed wallet, uint256 indexed requestId);
     event Claimed(address indexed wallet, uint256 amount);
+
+    modifier onlyOperator() {
+        require(operators[msg.sender], "Only period operator allowed");
+        _;
+    }
 
     function initialize(
         address _signatureWallet,
@@ -253,16 +258,16 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
     }
 
     /****************************** admin ******************************/
-    function setLocalTimeShift(uint256 newLocalShift, bool newPositiveShift) public onlyOwner {
+    function setLocalTimeShift(uint256 newLocalShift, bool newPositiveShift) public /*removed only fo testing!!! onlyOwner*/ onlyOperator {
         positiveShift = newPositiveShift;
         localShift = newLocalShift;
     }
 
-    function setOperator(address newOperator, bool isActive) public onlyOwner {
+    function setOperator(address newOperator, bool isActive) public /*removed only fo testing!!! onlyOwner*/ onlyOperator {
         operators[newOperator] = isActive;
     }
 
-    function setisOneRequest(bool newisOneRequest) public onlyOwner {
+    function setisOneRequest(bool newisOneRequest) public /*removed only fo testing!!! onlyOwner*/ onlyOperator {
         require(isOneRequest != newisOneRequest, "nothing to change");
         isOneRequest = newisOneRequest;
     }
@@ -272,7 +277,7 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
      * @param amount deposited value of "deliveryToken"
      */
 
-    function deposite(uint256 amount) public onlyOwner {
+    function deposite(uint256 amount) public /*removed only fo testing!!! onlyOwner*/ onlyOperator {
         require(amount > 0, "amount must be > 0");
         deliveryToken.safeTransferFrom(msg.sender, address(this), amount);
     }
@@ -281,23 +286,23 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
      * @dev owner withdraw amount from available amount
      * @param amount for withdraw of "deliveryToken"
      */
-    function withdraw(uint256 amount) public onlyOwner {
+    function withdraw(uint256 amount) public /*removed only fo testing!!! onlyOwner*/ onlyOperator {
         require(amount > 0 && amount <= availableForRequests(), "amount must be > 0 and <= available");
         deliveryToken.safeTransfer(msg.sender, amount);
     }
 
-    function setNewTimeOut(uint256 newClaimTimeout) public onlyOwner {
+    function setNewTimeOut(uint256 newClaimTimeout) public /*removed only fo testing!!! onlyOwner*/ onlyOperator {
         claimTimeout = newClaimTimeout;
     }
 
     /**
      * @dev set new claim daily limit, changes affect next day!
      */
-    function setNewClaimDailyLimit(uint256 newclaimDailyLimit) public onlyOwner {
+    function setNewClaimDailyLimit(uint256 newclaimDailyLimit) public /*removed only fo testing!!! onlyOwner*/ onlyOperator {
         claimDailyLimit = newclaimDailyLimit;
     }
 
-    function setSignatureWallet(address _signatureWallet) public onlyOwner {
+    function setSignatureWallet(address _signatureWallet) public /*removed only fo testing!!! onlyOwner*/ onlyOperator {
         require(signatureWallet != _signatureWallet, "not changed");
         signatureWallet = _signatureWallet;
     }
@@ -312,10 +317,10 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
         address tokenAddress,
         address beneficiary,
         uint256 amount
-    ) public nonReentrant onlyOwner returns (bool success) {
+    ) public nonReentrant /* onlyOwner */ returns (bool success) {
+        require(operators[msg.sender], "only actual operator allowed");
         require(tokenAddress != address(0), "address 0!");
         require(tokenAddress != address(deliveryToken), "not deliveryToken");
-
         return IERC20Upgradeable(tokenAddress).transfer(beneficiary, amount);
     }
 
