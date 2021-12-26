@@ -72,13 +72,13 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
     // raw request list
     Request[] public requests;
     // wallet -> request ids list, to reduce memory usage needs to move (clear from requests) finished id to finishedRequests
-    mapping(address => uint256[]) walletRequests;
+    mapping(address => uint256[]) public walletRequests;
 
     // request -> wallet, only added link for getting wallet by requestId
-    mapping(uint256 => address) requestWallet;
+    mapping(uint256 => address) public requestWallet;
 
     // wallet -> finished request ids list
-    mapping(address => uint256[]) walletFinishedRequests;
+    mapping(address => uint256[]) public walletFinishedRequests;
 
     // operator - activated
     mapping(address => bool) public operators;
@@ -87,7 +87,7 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
     event Claimed(address indexed wallet, uint256 amount);
 
     modifier onlyOperator() {
-        require(operators[msg.sender], "Only period operator allowed");
+        require(operators[msg.sender], "Only operator allowed");
         _;
     }
 
@@ -125,8 +125,7 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
         uint256 amount,
         uint256 nonce,
         bytes memory sig
-    ) public {
-        require(operators[msg.sender], "only actual operator allowed");
+    ) public onlyOperator {
         require(wallet == msg.sender, "incorrect sender");
         require(amount <= availableForRequests(), "insufficient reserves");
         if (isOneRequest) {
@@ -258,16 +257,28 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
     }
 
     /****************************** admin ******************************/
-    function setLocalTimeShift(uint256 newLocalShift, bool newPositiveShift) public /*removed only fo testing!!! onlyOwner*/ onlyOperator {
+    function setLocalTimeShift(uint256 newLocalShift, bool newPositiveShift)
+        public
+        /*removed only fo testing!!! onlyOwner*/
+        onlyOperator
+    {
         positiveShift = newPositiveShift;
         localShift = newLocalShift;
     }
 
-    function setOperator(address newOperator, bool isActive) public /*removed only fo testing!!! onlyOwner*/ onlyOperator {
+    function setOperator(address newOperator, bool isActive)
+        public
+        /*removed only fo testing!!! onlyOwner*/
+        onlyOperator
+    {
         operators[newOperator] = isActive;
     }
 
-    function setisOneRequest(bool newisOneRequest) public /*removed only fo testing!!! onlyOwner*/ onlyOperator {
+    function setisOneRequest(bool newisOneRequest)
+        public
+        /*removed only fo testing!!! onlyOwner*/
+        onlyOperator
+    {
         require(isOneRequest != newisOneRequest, "nothing to change");
         isOneRequest = newisOneRequest;
     }
@@ -277,7 +288,11 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
      * @param amount deposited value of "deliveryToken"
      */
 
-    function deposite(uint256 amount) public /*removed only fo testing!!! onlyOwner*/ onlyOperator {
+    function deposite(uint256 amount)
+        public
+        /*removed only fo testing!!! onlyOwner*/
+        onlyOperator
+    {
         require(amount > 0, "amount must be > 0");
         deliveryToken.safeTransferFrom(msg.sender, address(this), amount);
     }
@@ -286,23 +301,39 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
      * @dev owner withdraw amount from available amount
      * @param amount for withdraw of "deliveryToken"
      */
-    function withdraw(uint256 amount) public /*removed only fo testing!!! onlyOwner*/ onlyOperator {
+    function withdraw(uint256 amount)
+        public
+        /*removed only fo testing!!! onlyOwner*/
+        onlyOperator
+    {
         require(amount > 0 && amount <= availableForRequests(), "amount must be > 0 and <= available");
         deliveryToken.safeTransfer(msg.sender, amount);
     }
 
-    function setNewTimeOut(uint256 newClaimTimeout) public /*removed only fo testing!!! onlyOwner*/ onlyOperator {
+    function setNewTimeOut(uint256 newClaimTimeout)
+        public
+        /*removed only fo testing!!! onlyOwner*/
+        onlyOperator
+    {
         claimTimeout = newClaimTimeout;
     }
 
     /**
      * @dev set new claim daily limit, changes affect next day!
      */
-    function setNewClaimDailyLimit(uint256 newclaimDailyLimit) public /*removed only fo testing!!! onlyOwner*/ onlyOperator {
+    function setNewClaimDailyLimit(uint256 newclaimDailyLimit)
+        public
+        /*removed only fo testing!!! onlyOwner*/
+        onlyOperator
+    {
         claimDailyLimit = newclaimDailyLimit;
     }
 
-    function setSignatureWallet(address _signatureWallet) public /*removed only fo testing!!! onlyOwner*/ onlyOperator {
+    function setSignatureWallet(address _signatureWallet)
+        public
+        /*removed only fo testing!!! onlyOwner*/
+        onlyOperator
+    {
         require(signatureWallet != _signatureWallet, "not changed");
         signatureWallet = _signatureWallet;
     }
@@ -317,8 +348,13 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
         address tokenAddress,
         address beneficiary,
         uint256 amount
-    ) public nonReentrant /* onlyOwner */ returns (bool success) {
-        require(operators[msg.sender], "only actual operator allowed");
+    )
+        public
+        nonReentrant
+        /* onlyOwner */
+        onlyOperator
+        returns (bool success)
+    {
         require(tokenAddress != address(0), "address 0!");
         require(tokenAddress != address(deliveryToken), "not deliveryToken");
         return IERC20Upgradeable(tokenAddress).transfer(beneficiary, amount);
@@ -328,8 +364,7 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
      * @dev only "operator" remove request list
      * @param requestIds - list of gequests to remove
      */
-    function removeRequest(uint256[] memory requestIds) public {
-        require(operators[msg.sender], "only actual operator allowed");
+    function removeRequest(uint256[] memory requestIds) public onlyOperator {
         uint256 freedAmount;
         address wallet;
         for (uint256 i = 0; i < requestIds.length; i++) {
@@ -368,7 +403,10 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
      * @dev get today starting timestamp and tomorrow starting timestamp
      */
     function getDatesStarts() public view returns (uint256 todayStart, uint256 tomorrowStart) {
-        return (localTime(), localTime() + 24 * 60 * 60);
+        return (
+            YMDToTimestamp(timestampToYMD(localTime())),
+            YMDToTimestamp(timestampToYMD(localTime())) + 24 * 60 * 60
+        );
     }
 
     function getClaimDailyLimit() public view returns (uint256 limit) {
@@ -415,9 +453,32 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
             uint256 veryFirstRequestDate
         )
     {
+        (remainderTotal, remainderPreparedForClaim, requestIds, veryFirstRequestDate) = getRemainderOfRequestsbyWallet(
+            msg.sender
+        );
+    }
+
+    /**
+     * @dev get remainder for actual requests by passed wallet
+     * @param wallet - wallet for getting data
+     * @return remainderTotal - total reuqested amount, not respected day limits
+     * @return remainderPreparedForClaim - total reuqested amount, ready to claim at this day, not respected day limits
+     * @return requestIds - list of actual request IDs
+     * @return veryFirstRequestDate very first request claim-ready day from actual requests
+     */
+    function getRemainderOfRequestsbyWallet(address wallet)
+        public
+        view
+        returns (
+            uint256 remainderTotal,
+            uint256 remainderPreparedForClaim,
+            uint256[] memory requestIds,
+            uint256 veryFirstRequestDate
+        )
+    {
         uint256 count;
-        for (uint256 i = 0; i < walletRequests[msg.sender].length; i++) {
-            Request memory _req = requests[walletRequests[msg.sender][i]];
+        for (uint256 i = 0; i < walletRequests[wallet].length; i++) {
+            Request memory _req = requests[walletRequests[wallet][i]];
             // add remainderTotal amount for all requests
             remainderTotal += _req.requestedAmount - _req.paidAmount;
             if (veryFirstRequestDate == 0 || _req.claimfromYMD <= veryFirstRequestDate) {
@@ -433,9 +494,9 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
         // fillup returning requestIds
         if (count > 0) {
             uint256[] memory _tempList = new uint256[](count);
-            for (uint256 i = 0; i < walletRequests[msg.sender].length; i++) {
+            for (uint256 i = 0; i < walletRequests[wallet].length; i++) {
                 count--;
-                _tempList[count] = walletRequests[msg.sender][i];
+                _tempList[count] = walletRequests[wallet][i];
             }
             requestIds = _tempList;
         }
@@ -447,9 +508,23 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
      * @return requestIds - request ids for the sender wallet
      */
     function getAvailableToClaim() public view returns (uint256 available, uint256[] memory requestIds) {
+        (available, requestIds) = getAvailableToClaimbyWallet(msg.sender);
+    }
+
+    /**
+     * @dev get available tokens to claim according claim date and day limits by passed wallet, so once requested available will shown after claim date
+     * @param wallet - wallet for getting data
+     * @return available - tokens amount for the sender wallet
+     * @return requestIds - request ids for the sender wallet
+     */
+    function getAvailableToClaimbyWallet(address wallet)
+        public
+        view
+        returns (uint256 available, uint256[] memory requestIds)
+    {
         uint256 count;
-        for (uint256 i = 0; i < walletRequests[msg.sender].length; i++) {
-            Request memory _req = requests[walletRequests[msg.sender][i]];
+        for (uint256 i = 0; i < walletRequests[wallet].length; i++) {
+            Request memory _req = requests[walletRequests[wallet][i]];
             if (
                 available < getClaimDailyLimit() &&
                 !_req.isDeactivated &&
@@ -467,17 +542,17 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
         // fillup returning requestIds
         if (count > 0) {
             uint256[] memory _tempList = new uint256[](count);
-            for (uint256 i = 0; i < walletRequests[msg.sender].length; i++) {
-                Request memory _req = requests[walletRequests[msg.sender][i]];
+            for (uint256 i = 0; i < walletRequests[wallet].length; i++) {
+                Request memory _req = requests[walletRequests[wallet][i]];
                 if (
                     available < getClaimDailyLimit() &&
                     !_req.isDeactivated &&
                     (_req.requestedAmount - _req.paidAmount) > 0 &&
-                    _req.claimfromYMD >= timestampToYMD(localTime())
+                    _req.claimfromYMD <= timestampToYMD(localTime())
                 ) {
                     count--;
                     // save request id
-                    _tempList[count] = walletRequests[msg.sender][i];
+                    _tempList[count] = walletRequests[wallet][i];
                 }
             }
             requestIds = _tempList;

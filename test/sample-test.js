@@ -95,8 +95,9 @@ describe("emidelivery", function () {
     let TodayStart = (await EmiDelivery.getDatesStarts()).todayStart;
     let TomorrowStart = (await EmiDelivery.getDatesStarts()).tomorrowStart;
     let LocalTime = await EmiDelivery.localTime();
+    let LocalTimeYMD = await EmiDelivery.YMDToTimestamp((await EmiDelivery.timestampToYMD(await EmiDelivery.localTime())));
 
-    expect(TodayStart).to.be.equal(LocalTime);
+    expect(TodayStart).to.be.equal(LocalTimeYMD);
 
     // shift dates + 24h
     await EmiDelivery.connect(owner).setLocalTimeShift(BigNumber.from(SHIFT_SECONDS).toString(), true);
@@ -104,11 +105,11 @@ describe("emidelivery", function () {
     let TodayStart_shifted = (await EmiDelivery.getDatesStarts()).todayStart;
     let TomorrowStart_shifted = (await EmiDelivery.getDatesStarts()).tomorrowStart;
     let LocalTime_shifted = await EmiDelivery.localTime();
-
+    
     // add 1 second when shifting executes
     expect(LocalTime_shifted).to.be.equal(BigNumber.from(LocalTime).add(SHIFT_SECONDS).add(1));
-    expect(TodayStart_shifted).to.be.equal(BigNumber.from(TodayStart).add(SHIFT_SECONDS).add(1));
-    expect(TomorrowStart_shifted).to.be.equal(BigNumber.from(TomorrowStart).add(SHIFT_SECONDS).add(1));
+    expect(TodayStart_shifted).to.be.equal(BigNumber.from(TodayStart).add(SHIFT_SECONDS));
+    expect(TomorrowStart_shifted).to.be.equal(BigNumber.from(TomorrowStart).add(SHIFT_SECONDS));
   });
 
   it("owner deposite/withdraw", async function () {
@@ -157,7 +158,7 @@ describe("emidelivery", function () {
 
     // get nearest request date
     let dayNow = new Date((await getBlockTime(ethers)) * 1000);
-    let YMDNow = dayNow.getFullYear() * 10000 + (dayNow.getMonth() + 1) * 100 + dayNow.getDate();
+    let YMDNow = dayNow.getFullYear() * 10000 + (dayNow.getMonth() + 1) * 100 + dayNow.getUTCDate();
     expect(
       (await EmiDelivery.connect(Alice).getRemainderOfRequests()).veryFirstRequestDate.sub(BigNumber.from(YMDNow))
     ).to.be.equal(CLAIM_DAYS);
@@ -213,7 +214,7 @@ describe("emidelivery", function () {
     await request(EmiDelivery, Alice, FIRST_CLAIMREQUEST, FIRST_REQUEST_ID, SigWallet, SigWallet_PrivateKey);
     await request(EmiDelivery, Bob, FIRST_CLAIMREQUEST, SECOND_REQUEST_ID, SigWallet, SigWallet_PrivateKey);
     await expect(EmiDelivery.connect(Clarc).removeRequest([FIRST_REQUEST_ID, SECOND_REQUEST_ID])).to.be.revertedWith(
-      "only actual operator allowed"
+      "Only operator allowed"
     );
 
     // Clarc become operator
