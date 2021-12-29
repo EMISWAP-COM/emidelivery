@@ -10,6 +10,8 @@ require('hardhat-contract-sizer');
 
 const ALCHEMY_API_KEY_MUMBAI = process.env.ALCHEMY_API_KEY_MUMBAI || "";
 const MUMBAI_PRIVATE_KEY = process.env.MUMBAI_PRIVATE_KEY || "";
+const ALCHEMY_API_KEY_POLYGON = process.env.ALCHEMY_API_KEY_POLYGON || "";
+const POLYGON_PRIVATE_KEY = process.env.POLYGON_PRIVATE_KEY || "";
 
 // This is a sample Hardhat task. To learn how to create your own go to
 // https://hardhat.org/guides/create-task.html
@@ -34,6 +36,13 @@ if (ALCHEMY_API_KEY_MUMBAI != "" && MUMBAI_PRIVATE_KEY != "") {
   exportNetworks["mumbai"] = {
     url: `https://polygon-mumbai.g.alchemy.com/v2/${ALCHEMY_API_KEY_MUMBAI}`,
     accounts: [`${MUMBAI_PRIVATE_KEY}`]
+  }
+}
+
+if (ALCHEMY_API_KEY_POLYGON != "" && POLYGON_PRIVATE_KEY != "") {
+  exportNetworks["polygon"] = {
+    url: `https://polygon-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY_POLYGON}`,
+    accounts: [`${POLYGON_PRIVATE_KEY}`]
   }
 }
 

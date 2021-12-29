@@ -1,7 +1,6 @@
 //SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "hardhat/console.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
@@ -117,47 +116,6 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
         return walletNonce[msg.sender];
     }
 
-    /*@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@*/
-    /*@@@@@@@@@@@@@@   ONLY FOR TESTING !!!   @@@@ REMOVE FOR PRODUCTION @@@@@@@@@@@@@@@@@@@@@@@*/
-    /*@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@*/
-    function requestUnsigned(
-        address wallet,
-        uint256 amount,
-        uint256 nonce,
-        bytes memory sig
-    ) public onlyOperator {
-        require(wallet == msg.sender, "incorrect sender");
-        require(amount <= availableForRequests(), "insufficient reserves");
-        if (isOneRequest) {
-            (uint256 remainder, , , ) = getRemainderOfRequests();
-            require(isOneRequest && remainder == 0, "unclaimed request exists");
-        }
-
-        walletNonce[wallet] = nonce;
-
-        // set requests
-        requests.push(
-            Request({
-                claimfromYMD: timestampToYMD(localTime() + claimTimeout),
-                requestedAmount: amount,
-                paidAmount: 0,
-                index: walletRequests[msg.sender].length, // save index
-                isDeactivated: false
-            })
-        );
-
-        lockedForRequests += amount;
-
-        // save request id by wallet
-        walletRequests[msg.sender].push(requests.length - 1); // Request.index
-        // link request to wallet
-        requestWallet[requests.length - 1] = msg.sender;
-        emit ClaimRequested(msg.sender, requests.length - 1);
-    }
-
-    /*@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@*/
-    /*@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@*/
-
     function request(
         address wallet,
         uint256 amount,
@@ -264,7 +222,6 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
     /****************************** admin ******************************/
     function setLocalTimeShift(uint256 newLocalShift, bool newPositiveShift)
         public
-        /*removed only fo testing!!! onlyOwner*/
         onlyOperator
     {
         positiveShift = newPositiveShift;
@@ -273,15 +230,13 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
 
     function setOperator(address newOperator, bool isActive)
         public
-        /*removed only fo testing!!! onlyOwner*/
-        onlyOperator
+        onlyOwner
     {
         operators[newOperator] = isActive;
     }
 
     function setisOneRequest(bool newisOneRequest)
         public
-        /*removed only fo testing!!! onlyOwner*/
         onlyOperator
     {
         require(isOneRequest != newisOneRequest, "nothing to change");
@@ -295,8 +250,7 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
 
     function deposite(uint256 amount)
         public
-        /*removed only fo testing!!! onlyOwner*/
-        onlyOperator
+        onlyOwner
     {
         require(amount > 0, "amount must be > 0");
         deliveryToken.safeTransferFrom(msg.sender, address(this), amount);
@@ -308,8 +262,7 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
      */
     function withdraw(uint256 amount)
         public
-        /*removed only fo testing!!! onlyOwner*/
-        onlyOperator
+        onlyOwner
     {
         require(amount > 0 && amount <= availableForRequests(), "amount must be > 0 and <= available");
         deliveryToken.safeTransfer(msg.sender, amount);
@@ -317,7 +270,6 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
 
     function setNewTimeOut(uint256 newClaimTimeout)
         public
-        /*removed only fo testing!!! onlyOwner*/
         onlyOperator
     {
         claimTimeout = newClaimTimeout;
@@ -328,7 +280,6 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
      */
     function setNewClaimDailyLimit(uint256 newclaimDailyLimit)
         public
-        /*removed only fo testing!!! onlyOwner*/
         onlyOperator
     {
         claimDailyLimit = newclaimDailyLimit;
@@ -336,7 +287,6 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
 
     function setSignatureWallet(address _signatureWallet)
         public
-        /*removed only fo testing!!! onlyOwner*/
         onlyOperator
     {
         require(signatureWallet != _signatureWallet, "not changed");
@@ -356,13 +306,19 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
     )
         public
         nonReentrant
-        /* onlyOwner */
-        onlyOperator
+        onlyOwner
         returns (bool success)
     {
         require(tokenAddress != address(0), "address 0!");
         require(tokenAddress != address(deliveryToken), "not deliveryToken");
         return IERC20Upgradeable(tokenAddress).transfer(beneficiary, amount);
+    }
+
+    /**
+     * @dev set request index
+     */
+    function setRequestIndex(uint256 ReuestId, uint256 indexValue) public onlyOperator {
+        requests[ReuestId].index = indexValue;
     }
 
     /**
@@ -373,8 +329,9 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
         uint256 freedAmount;
         address wallet;
         for (uint256 i = 0; i < requestIds.length; i++) {
+            uint256 reqId = requestIds[i];
             // if request is active and not completly paid
-            Request storage req = requests[requestIds[i]];
+            Request storage req = requests[reqId];
             if (!req.isDeactivated && (req.requestedAmount - req.paidAmount) > 0) {
                 // save freed amount
                 freedAmount += (req.requestedAmount - req.paidAmount);
@@ -382,11 +339,15 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
                 req.isDeactivated = true;
 
                 // get wallet
-                wallet = requestWallet[requestIds[i]];
+                wallet = requestWallet[reqId];
                 //finish request
-                walletFinishedRequests[wallet].push(requestIds[i]);
+                walletFinishedRequests[wallet].push(reqId);
+                uint256 shiftedReqId = walletRequests[wallet][walletRequests[wallet].length - 1];
                 // remove completed reuqest id
-                walletRequests[wallet][req.index] = walletRequests[wallet][walletRequests[wallet].length - 1];
+                walletRequests[wallet][req.index] = shiftedReqId;
+
+                // set index of shifted request to finished reqId
+                requests[shiftedReqId].index = req.index;
                 walletRequests[wallet].pop();
             }
         }

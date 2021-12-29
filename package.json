@@ -46,6 +46,8 @@
     "upgrade-hardhat": "npx hardhat run scripts/upgrade.js --network hardhat",
     "deploy-mumbai": "npx hardhat run scripts/deployWithMock.js --network mumbai",
     "upgrade-mumbai": "npx hardhat run scripts/upgrade.js --network mumbai",
+    "deploy-polygon": "npx hardhat run scripts/deployWithMock.js --network polygon",
+    "upgrade-polygon": "npx hardhat run scripts/upgrade.js --network polygon",
     "contract-flatten": "npx hardhat flatten contracts/emidelivery.sol > flat/emidelivery.flat.sol"
   }
 }
