@@ -231,26 +231,31 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
         require(requestIds.length > 0, "no requests for claiming");
         // go by requests and claim available amount one by one
         for (uint256 i = 0; i < requestIds.length; i++) {
-            require(requests[requestIds[i]].claimfromYMD <= timestampToYMD(localTime()), "incorrect claim");
+            uint256 reqId = requestIds[i];
+            require(requests[reqId].claimfromYMD <= timestampToYMD(localTime()), "incorrect claim");
             if (available <= 0) return;
             // claim available
-            uint256 restOfPayment = requests[requestIds[i]].requestedAmount - requests[requestIds[i]].paidAmount;
+            uint256 restOfPayment = requests[reqId].requestedAmount - requests[reqId].paidAmount;
 
             // reduce available by rest of payment
             if (available >= restOfPayment) {
-                requests[requestIds[i]].paidAmount += restOfPayment;
+                requests[reqId].paidAmount += restOfPayment;
                 available -= restOfPayment;
             } else {
-                requests[requestIds[i]].paidAmount += available;
+                requests[reqId].paidAmount += available;
                 available = 0;
             }
             // request filled -> add to finished requests and remove from wallet requests
-            if (requests[requestIds[i]].requestedAmount == requests[requestIds[i]].paidAmount) {
-                walletFinishedRequests[msg.sender].push(requestIds[i]);
+            if (requests[reqId].requestedAmount == requests[reqId].paidAmount) {
+                walletFinishedRequests[msg.sender].push(reqId);
+                uint256 shiftedReqId = walletRequests[msg.sender][walletRequests[msg.sender].length - 1];
                 // remove completed reuqest id
-                walletRequests[msg.sender][requests[requestIds[i]].index] = walletRequests[msg.sender][
-                    walletRequests[msg.sender].length - 1
-                ];
+                walletRequests[msg.sender][requests[reqId].index] = shiftedReqId;
+
+                // set index of shifted request to finished reqId
+                requests[shiftedReqId].index = requests[reqId].index;
+
+                // remove freed record
                 walletRequests[msg.sender].pop();
             }
         }
@@ -545,7 +550,7 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
             for (uint256 i = 0; i < walletRequests[wallet].length; i++) {
                 Request memory _req = requests[walletRequests[wallet][i]];
                 if (
-                    available < getClaimDailyLimit() &&
+                    available <= getClaimDailyLimit() &&
                     !_req.isDeactivated &&
                     (_req.requestedAmount - _req.paidAmount) > 0 &&
                     _req.claimfromYMD <= timestampToYMD(localTime())
@@ -553,6 +558,10 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
                     count--;
                     // save request id
                     _tempList[count] = walletRequests[wallet][i];
+                    // only one request takes it all - quit
+                    if (available == getClaimDailyLimit()) {
+                        break;
+                    }
                 }
             }
             requestIds = _tempList;
