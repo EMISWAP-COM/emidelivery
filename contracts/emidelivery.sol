@@ -321,6 +321,10 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
         requests[ReuestId].index = indexValue;
     }
 
+    function reduceLockedForRequests(uint256 freedAmount) public onlyOperator {
+        lockedForRequests -= freedAmount;
+    }
+
     /**
      * @dev only "operator" remove request list
      * @param requestIds - list of gequests to remove
@@ -354,7 +358,7 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
         // resurect limit
         currentClaimDailyLimit += freedAmount;
         // reduce requested amount
-        lockedForRequests += freedAmount;
+        lockedForRequests -= freedAmount;
     }
 
     /*************************** view ************************************/
@@ -526,6 +530,16 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
                 }
             }
             requestIds = _tempList;
+        }
+    }
+
+    function checkRequests() public view returns(uint256 lockedByActiveRequests) {
+        for (uint256 i = 0; i < requests.length; i++) {
+            // if request is active and not completly paid
+            Request storage req = requests[i];
+            if (!req.isDeactivated && (req.requestedAmount - req.paidAmount) > 0) {                
+                lockedByActiveRequests += (req.requestedAmount - req.paidAmount);
+            }
         }
     }
 }
