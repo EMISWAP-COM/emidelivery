@@ -220,25 +220,16 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
     }
 
     /****************************** admin ******************************/
-    function setLocalTimeShift(uint256 newLocalShift, bool newPositiveShift)
-        public
-        onlyOperator
-    {
+    function setLocalTimeShift(uint256 newLocalShift, bool newPositiveShift) public onlyOperator {
         positiveShift = newPositiveShift;
         localShift = newLocalShift;
     }
 
-    function setOperator(address newOperator, bool isActive)
-        public
-        onlyOwner
-    {
+    function setOperator(address newOperator, bool isActive) public onlyOwner {
         operators[newOperator] = isActive;
     }
 
-    function setisOneRequest(bool newisOneRequest)
-        public
-        onlyOperator
-    {
+    function setisOneRequest(bool newisOneRequest) public onlyOperator {
         require(isOneRequest != newisOneRequest, "nothing to change");
         isOneRequest = newisOneRequest;
     }
@@ -248,10 +239,7 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
      * @param amount deposited value of "deliveryToken"
      */
 
-    function deposite(uint256 amount)
-        public
-        onlyOwner
-    {
+    function deposite(uint256 amount) public onlyOwner {
         require(amount > 0, "amount must be > 0");
         deliveryToken.safeTransferFrom(msg.sender, address(this), amount);
     }
@@ -260,35 +248,23 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
      * @dev owner withdraw amount from available amount
      * @param amount for withdraw of "deliveryToken"
      */
-    function withdraw(uint256 amount)
-        public
-        onlyOwner
-    {
+    function withdraw(uint256 amount) public onlyOwner {
         require(amount > 0 && amount <= availableForRequests(), "amount must be > 0 and <= available");
         deliveryToken.safeTransfer(msg.sender, amount);
     }
 
-    function setNewTimeOut(uint256 newClaimTimeout)
-        public
-        onlyOperator
-    {
+    function setNewTimeOut(uint256 newClaimTimeout) public onlyOperator {
         claimTimeout = newClaimTimeout;
     }
 
     /**
      * @dev set new claim daily limit, changes affect next day!
      */
-    function setNewClaimDailyLimit(uint256 newclaimDailyLimit)
-        public
-        onlyOperator
-    {
+    function setNewClaimDailyLimit(uint256 newclaimDailyLimit) public onlyOperator {
         claimDailyLimit = newclaimDailyLimit;
     }
 
-    function setSignatureWallet(address _signatureWallet)
-        public
-        onlyOperator
-    {
+    function setSignatureWallet(address _signatureWallet) public onlyOperator {
         require(signatureWallet != _signatureWallet, "not changed");
         signatureWallet = _signatureWallet;
     }
@@ -303,12 +279,7 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
         address tokenAddress,
         address beneficiary,
         uint256 amount
-    )
-        public
-        nonReentrant
-        onlyOwner
-        returns (bool success)
-    {
+    ) public nonReentrant onlyOwner returns (bool success) {
         require(tokenAddress != address(0), "address 0!");
         require(tokenAddress != address(deliveryToken), "not deliveryToken");
         return IERC20Upgradeable(tokenAddress).transfer(beneficiary, amount);
@@ -493,20 +464,21 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
         returns (uint256 available, uint256[] memory requestIds)
     {
         uint256 count;
+        uint256 restOfPayment;
+        uint256 dailyLimit = getClaimDailyLimit();
+        uint256 _localYMD = timestampToYMD(localTime());
         for (uint256 i = 0; i < walletRequests[wallet].length; i++) {
             Request memory _req = requests[walletRequests[wallet][i]];
-            if (
-                available < getClaimDailyLimit() &&
-                !_req.isDeactivated &&
-                (_req.requestedAmount - _req.paidAmount) > 0 &&
-                _req.claimfromYMD <= timestampToYMD(localTime())
-            ) {
-                // add available amount according daily available for requests
-                available += (available + (_req.requestedAmount - _req.paidAmount) <= getClaimDailyLimit())
-                    ? (_req.requestedAmount - _req.paidAmount)
-                    : getClaimDailyLimit();
-                // count requests
-                count++;
+            restOfPayment = _req.requestedAmount - _req.paidAmount;
+            if (available < dailyLimit && !_req.isDeactivated && restOfPayment > 0 && _req.claimfromYMD <= _localYMD) {
+                if (available + restOfPayment <= dailyLimit) {
+                    available += restOfPayment;
+                    count++;
+                } else {
+                    available = dailyLimit;
+                    count++;
+                    break;
+                }
             }
         }
         // fillup returning requestIds
@@ -515,16 +487,16 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
             for (uint256 i = 0; i < walletRequests[wallet].length; i++) {
                 Request memory _req = requests[walletRequests[wallet][i]];
                 if (
-                    available <= getClaimDailyLimit() &&
+                    available <= dailyLimit &&
                     !_req.isDeactivated &&
                     (_req.requestedAmount - _req.paidAmount) > 0 &&
-                    _req.claimfromYMD <= timestampToYMD(localTime())
+                    _req.claimfromYMD <= _localYMD
                 ) {
                     count--;
                     // save request id
                     _tempList[count] = walletRequests[wallet][i];
                     // only one request takes it all - quit
-                    if (available == getClaimDailyLimit()) {
+                    if (available == dailyLimit) {
                         break;
                     }
                 }
@@ -533,11 +505,11 @@ contract emidelivery is ReentrancyGuardUpgradeable, OwnableUpgradeable, OracleSi
         }
     }
 
-    function checkRequests() public view returns(uint256 lockedByActiveRequests) {
+    function checkRequests() public view returns (uint256 lockedByActiveRequests) {
         for (uint256 i = 0; i < requests.length; i++) {
             // if request is active and not completly paid
             Request storage req = requests[i];
-            if (!req.isDeactivated && (req.requestedAmount - req.paidAmount) > 0) {                
+            if (!req.isDeactivated && (req.requestedAmount - req.paidAmount) > 0) {
                 lockedByActiveRequests += (req.requestedAmount - req.paidAmount);
             }
         }

@@ -363,4 +363,16 @@ describe("emidelivery", function () {
     await EmiDelivery.connect(Alice).claim();
     await EmiDelivery.connect(Bob).claim();
   });
+  it("Alice made some requests, and view requests by getAvailableToClaimbyWallet() not more limit getClaimDailyLimit()", async function () {
+    await deposite(EmiDelivery, owner);
+    await EmiDelivery.connect(owner).setisOneRequest(SWITCH_OFF_ONEREQUEST);
+    // make 3 requests by 20000, 60000 > 50000 (daily limit)
+    for (const iterator of Array(3).keys()) {
+      await request(EmiDelivery, Alice, tokens(20_000), iterator, SigWallet, SigWallet_PrivateKey);      
+    }
+    // pass claim timeout
+    await passOneDay();
+    let requests =  await EmiDelivery.getAvailableToClaimbyWallet(Alice.address);
+    expect(requests.available).to.be.equal(CLAIM_DAILY_LIMIT);
+  })
 });
